@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const ventasController = require('../controllers/ventas.controller.js');
-const verificarAdmin = require('../middlewares/auth.middleware.js');
+const ventasController = require('../controllers/ventas_controller.js');
+const verificarAdmin = require('../middlewares/auth_middleware.js');
 
 router.post('/', verificarAdmin, ventasController.registrarVenta);
 router.get('/', verificarAdmin, ventasController.obtenerVentas);
+router.patch('/:id', verificarAdmin, ventasController.actualizarVenta);
 
 module.exports = router;

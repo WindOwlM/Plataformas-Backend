@@ -2,8 +2,8 @@
 const express = require('express');
 const router = express.Router();
 
-const cuentasController = require('../controllers/cuentas.controller.js');
-const verificarAdmin = require('../middlewares/auth.middleware.js'); // <-- Importamos al guardia
+const cuentasController = require('../controllers/cuentas_controller.js');
+const verificarAdmin = require('../middlewares/auth_middleware.js'); // <-- Importamos al guardia
 
 // Fíjate en el orden: Ruta -> Middleware -> Controlador
 // Puedes leerlo como: "Al intentar crear, primero verifica al admin, y si pasa, ejecuta crearCuenta"

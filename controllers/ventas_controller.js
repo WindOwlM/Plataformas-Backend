@@ -50,4 +50,32 @@ ventasController.obtenerVentas = async (req, res) => {
     }
 };
 
+ventasController.actualizarVenta = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pin, vencimiento_usuario, es_combo, valor_venta } = req.body;
+        
+        let actualizaciones = {};
+        
+        // Usamos !== undefined para permitir que envíen valores booleanos (false) o strings vacíos
+        if (pin !== undefined) actualizaciones.pin = pin;
+        if (vencimiento_usuario !== undefined) actualizaciones.vencimiento_usuario = vencimiento_usuario;
+        if (es_combo !== undefined) actualizaciones.es_combo = es_combo;
+        if (valor_venta !== undefined) actualizaciones.valor_venta = valor_venta;
+
+        const { data, error } = await supabase
+            .from('usuario_cuenta')
+            .update(actualizaciones)
+            .eq('id', id)
+            .select();
+
+        if (error) throw error;
+        if (data.length === 0) return res.status(404).json({ error: 'Registro de venta no encontrado' });
+        
+        res.status(200).json({ mensaje: 'Venta actualizada', venta: data[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = ventasController;

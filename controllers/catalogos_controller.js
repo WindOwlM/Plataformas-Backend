@@ -46,4 +46,46 @@ catalogosController.obtenerProveedores = async (req, res) => {
     }
 };
 
+catalogosController.actualizarPlataforma = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nombre_plat } = req.body;
+        
+        // Supabase ignorará los valores 'undefined' automáticamente
+        const { data, error } = await supabase
+            .from('plataforma')
+            .update({ nombre_plat })
+            .eq('id', id)
+            .select();
+
+        if (error) throw error;
+        if (data.length === 0) return res.status(404).json({ error: 'Plataforma no encontrada' });
+        
+        res.status(200).json({ mensaje: 'Plataforma actualizada', plataforma: data[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+catalogosController.actualizarProveedor = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nombre_prov } = req.body;
+        
+        const { data, error } = await supabase
+            .from('proveedor')
+            .update({ nombre_prov })
+            .eq('id', id)
+            .select();
+
+        if (error) throw error;
+        if (data.length === 0) return res.status(404).json({ error: 'Proveedor no encontrado' });
+        
+        res.status(200).json({ mensaje: 'Proveedor actualizado', proveedor: data[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+
 module.exports = catalogosController;

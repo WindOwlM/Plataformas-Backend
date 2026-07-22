@@ -3,10 +3,10 @@ const cors = require('cors');
 require('dotenv').config();
 
 // Importar todas las rutas
-const cuentasRoutes = require('./routes/cuentas.routes.js');
-const catalogosRoutes = require('./routes/catalogos.routes.js');
-const clientesRoutes = require('./routes/clientes.routes.js');
-const ventasRoutes = require('./routes/ventas.routes.js');
+const cuentasRoutes = require('./routes/cuentas_routes.js');
+const catalogosRoutes = require('./routes/catalogos_routes.js');
+const clientesRoutes = require('./routes/clientes_routes.js');
+const ventasRoutes = require('./routes/ventas_routes.js');
 
 const app = express();
 
