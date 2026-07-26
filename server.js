@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const supabase = require('./config/supabase');
 
 // Importar todas las rutas
 const cuentasRoutes = require('./routes/cuentas_routes.js');
@@ -10,7 +11,11 @@ const ventasRoutes = require('./routes/ventas_routes.js');
 
 const app = express();
 
-app.use(cors()); 
+app.use(cors({
+    origin: 'http://localhost:5173', // Puerto de Vite
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json()); 
 
 // Registrar las Rutas

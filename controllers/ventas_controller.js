@@ -2,6 +2,7 @@ const supabase = require('../config/supabase');
 
 const ventasController = {};
 
+// REGISTRAR VENTA/PUESTO
 ventasController.registrarVenta = async (req, res) => {
     try {
         const { 
@@ -21,18 +22,21 @@ ventasController.registrarVenta = async (req, res) => {
                 pin,
                 vencimiento_usuario,
                 es_combo,
-                valor_venta
+                valor_venta,
+                estado: id_usuario ? 'activa' : 'disponible',
+                fecha_venta: id_usuario ? new Date().toISOString() : null
             }])
             .select();
 
         if (error) throw error;
-        res.status(201).json({ mensaje: 'Venta registrada con éxito', venta: data[0] });
+        res.status(201).json({ mensaje: 'Puesto registrado', venta: data[0] });
     } catch (error) {
+        console.error("Error registrando venta:", error);
         res.status(500).json({ error: error.message });
     }
 };
 
-// Esta consulta usa joins (select de relaciones en Supabase) para traerte todo armado
+// OBTENER VENTAS
 ventasController.obtenerVentas = async (req, res) => {
     try {
         const { data, error } = await supabase
@@ -50,14 +54,15 @@ ventasController.obtenerVentas = async (req, res) => {
     }
 };
 
+// ACTUALIZAR VENTA/PUESTO
 ventasController.actualizarVenta = async (req, res) => {
     try {
         const { id } = req.params;
-        const { pin, vencimiento_usuario, es_combo, valor_venta } = req.body;
+        const { id_usuario, pin, vencimiento_usuario, es_combo, valor_venta } = req.body;
         
         let actualizaciones = {};
         
-        // Usamos !== undefined para permitir que envíen valores booleanos (false) o strings vacíos
+        if (id_usuario !== undefined) actualizaciones.id_usuario = id_usuario;
         if (pin !== undefined) actualizaciones.pin = pin;
         if (vencimiento_usuario !== undefined) actualizaciones.vencimiento_usuario = vencimiento_usuario;
         if (es_combo !== undefined) actualizaciones.es_combo = es_combo;
@@ -70,9 +75,27 @@ ventasController.actualizarVenta = async (req, res) => {
             .select();
 
         if (error) throw error;
-        if (data.length === 0) return res.status(404).json({ error: 'Registro de venta no encontrado' });
+        if (data.length === 0) return res.status(404).json({ error: 'Registro no encontrado' });
         
-        res.status(200).json({ mensaje: 'Venta actualizada', venta: data[0] });
+        res.status(200).json({ mensaje: 'Puesto actualizado', venta: data[0] });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ELIMINAR VENTA/PUESTO
+ventasController.eliminarVenta = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const { error } = await supabase
+            .from('usuario_cuenta')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+        
+        res.status(200).json({ mensaje: 'Puesto eliminado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
