@@ -1,5 +1,5 @@
 const supabase = require('../config/supabase');
-const bcrypt = require('bcrypt');
+const { encryptPassword, decryptPassword, isAesEncryptedPassword } = require('../utils/cryptoHelper');
 
 const cuentasController = {};
 
@@ -27,19 +27,17 @@ cuentasController.crearCuenta = async (req, res) => {
             return res.status(400).json({ error: 'La contraseña es obligatoria.' });
         }
 
-        const saltRounds = 10;
-        const hash = await bcrypt.hash(contrasena_plana, saltRounds);
+        const contrasenaCifrada = encryptPassword(contrasena_plana);
 
         // 1. Crear la cuenta
         const { data: cuentaData, error: cuentaError } = await supabase
             .from('cuenta')
-            .insert([{
+            .insert([{ 
                 id_plataforma,
                 id_proveedor,
                 correo,
-                contrasena_encriptada: hash,
-                precio_costo,
-                fecha_vencimiento,
+                contrasena_encriptada: contrasenaCifrada,
+                contrasena_recuperable: contrasena_plana,
                 fecha_agregado: new Date().toISOString().split('T')[0],
                 notas: notas || null,
                 estado: 'disponible'
@@ -152,7 +150,7 @@ cuentasController.obtenerCuentas = async (req, res) => {
 cuentasController.actualizarCuenta = async (req, res) => {
     try {
         const { id } = req.params;
-        const { correo, id_plataforma, id_proveedor, precio_costo, fecha_vencimiento, notas, contrasena_plana } = req.body;
+        const { correo, id_plataforma, id_proveedor, precio_costo, fecha_vencimiento, notas, contrasena_plana, puestos = [] } = req.body;
         
         let actualizaciones = {};
         
@@ -164,8 +162,8 @@ cuentasController.actualizarCuenta = async (req, res) => {
         if (notas !== undefined) actualizaciones.notas = notas;
 
         if (contrasena_plana) {
-            const saltRounds = 10;
-            actualizaciones.contrasena_encriptada = await bcrypt.hash(contrasena_plana, saltRounds);
+            actualizaciones.contrasena_encriptada = encryptPassword(contrasena_plana);
+            actualizaciones.contrasena_recuperable = contrasena_plana;
         }
 
         const { data, error } = await supabase
@@ -176,8 +174,101 @@ cuentasController.actualizarCuenta = async (req, res) => {
 
         if (error) throw error;
         if (data.length === 0) return res.status(404).json({ error: 'Cuenta no encontrada' });
-        
-        res.status(200).json({ mensaje: 'Cuenta actualizada', cuenta: data[0] });
+
+        const cuenta = data[0];
+        const puestosPayload = Array.isArray(puestos) ? puestos : [];
+
+        const existingPuestosResult = await supabase
+            .from('usuario_cuenta')
+            .select('id')
+            .eq('id_cuenta', cuenta.id);
+
+        if (existingPuestosResult.error) throw existingPuestosResult.error;
+
+        const existingPuestosIds = (existingPuestosResult.data || []).map((p) => p.id);
+        const puestosParaProcesar = puestosPayload
+            .filter(p => p.id_usuario || p.pin || p.id)
+            .map(p => ({
+                ...(p.id ? { id: p.id } : {}),
+                id_usuario: p.id_usuario || null,
+                id_cuenta: cuenta.id,
+                pin: p.pin || null,
+                vencimiento_usuario: p.vencimiento_usuario || null,
+                es_combo: p.es_combo || false,
+                valor_venta: p.valor_venta || 0,
+                estado: p.id_usuario ? 'activa' : 'disponible',
+                fecha_venta: p.id_usuario ? new Date().toISOString() : null
+            }));
+
+        const puestosConId = puestosParaProcesar.filter(p => p.id);
+        const puestosSinId = puestosParaProcesar.filter(p => !p.id);
+        const receivedIds = puestosConId.map((p) => p.id);
+        const idsParaEliminar = existingPuestosIds.filter((id) => !receivedIds.includes(id));
+
+        if (idsParaEliminar.length > 0) {
+            const { error: errorEliminarPuestos } = await supabase
+                .from('usuario_cuenta')
+                .delete()
+                .in('id', idsParaEliminar);
+
+            if (errorEliminarPuestos) throw errorEliminarPuestos;
+        }
+
+        if (puestosConId.length > 0) {
+            for (const puesto of puestosConId) {
+                const { id, ...resto } = puesto;
+                const { error: errorActualizarPuesto } = await supabase
+                    .from('usuario_cuenta')
+                    .update(resto)
+                    .eq('id', id);
+
+                if (errorActualizarPuesto) throw errorActualizarPuesto;
+            }
+        }
+
+        if (puestosSinId.length > 0) {
+            const { error: errorInsertarPuestos } = await supabase
+                .from('usuario_cuenta')
+                .insert(puestosSinId);
+
+            if (errorInsertarPuestos) throw errorInsertarPuestos;
+        }
+
+        const tieneVentas = puestosPayload.some(p => p.id_usuario);
+        await supabase
+            .from('cuenta')
+            .update({ estado: tieneVentas ? 'vendida' : 'disponible' })
+            .eq('id', cuenta.id);
+
+        const { data: cuentaActualizada, error: errorCuentaActualizada } = await supabase
+            .from('cuenta')
+            .select(`
+                *,
+                plataforma ( nombre_plat ),
+                proveedor ( nombre_prov ),
+                usuario_cuenta (
+                    id,
+                    id_usuario,
+                    pin,
+                    vencimiento_usuario,
+                    es_combo,
+                    valor_venta,
+                    estado,
+                    usuario ( nombre, numero_telefono )
+                )
+            `)
+            .eq('id', cuenta.id)
+            .single();
+
+        if (errorCuentaActualizada) throw errorCuentaActualizada;
+
+        res.status(200).json({
+            mensaje: 'Cuenta actualizada',
+            cuenta: {
+                ...cuentaActualizada,
+                usuarios_cuenta: cuentaActualizada.usuario_cuenta || []
+            }
+        });
     } catch (error) {
         console.error("Error actualizando cuenta:", error);
         res.status(500).json({ error: error.message });
@@ -199,6 +290,31 @@ cuentasController.eliminarCuenta = async (req, res) => {
         res.status(200).json({ mensaje: 'Cuenta eliminada' });
     } catch (error) {
         console.error("Error eliminando cuenta:", error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+cuentasController.obtenerContrasena = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { data, error } = await supabase
+            .from('cuenta')
+            .select('id, contrasena_recuperable')
+            .eq('id', id)
+            .single();
+
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Cuenta no encontrada' });
+
+        const contrasena = data.contrasena_recuperable;
+        if (!contrasena) {
+            return res.status(404).json({ error: 'No hay contraseña recuperable disponible' });
+        }
+
+        res.status(200).json({ contrasena });
+    } catch (error) {
+        console.error('Error obteniendo contraseña descifrada:', error);
         res.status(500).json({ error: error.message });
     }
 };
