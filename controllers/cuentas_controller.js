@@ -105,10 +105,25 @@ cuentasController.crearCuenta = async (req, res) => {
 };
 
 // OBTENER CUENTAS con puestos
+// Soporta filtros por:
+// - estado, plataforma
+// - correo (substring, case-insensitive)
+// - usuario (nombre de usuario substring, case-insensitive)
+// - fecha_inicio / fecha_fin -> filtra por cuenta.fecha_vencimiento
+// - usuario_fecha_inicio / usuario_fecha_fin -> filtra puestos por vencimiento_usuario
 cuentasController.obtenerCuentas = async (req, res) => {
     try {
-        const { estado, plataforma } = req.query;
-        
+        const {
+            estado,
+            plataforma,
+            correo,
+            usuario,
+            fecha_inicio,
+            fecha_fin,
+            usuario_fecha_inicio,
+            usuario_fecha_fin
+        } = req.query;
+
         let query = supabase
             .from('cuenta')
             .select(`
@@ -130,16 +145,50 @@ cuentasController.obtenerCuentas = async (req, res) => {
         if (estado) query = query.eq('estado', estado);
         if (plataforma) query = query.eq('id_plataforma', plataforma);
 
+        // Filtrado por rango de fecha de vencimiento de la cuenta (si se provee)
+        if (fecha_inicio) query = query.gte('fecha_vencimiento', fecha_inicio);
+        if (fecha_fin) query = query.lte('fecha_vencimiento', fecha_fin);
+
         const { data, error } = await query.order('fecha_vencimiento', { ascending: true });
 
         if (error) throw error;
-        
-        const cuentasFormateadas = data.map(c => ({
-            ...c,
-            usuarios_cuenta: c.usuario_cuenta || []
-        }));
 
-        res.status(200).json(cuentasFormateadas);
+        // Filtrado adicional en memoria para búsquedas por correo y nombre de usuario
+        const cuentasFiltradas = (data || []).filter((c) => {
+            // filtro por correo
+            if (correo) {
+                const correoNorm = (c.correo || '').toLowerCase();
+                if (!correoNorm.includes(correo.toLowerCase())) return false;
+            }
+
+            // filtro por nombre de usuario (busca en cualquiera de los puestos)
+            if (usuario) {
+                const nombreBuscado = usuario.toLowerCase();
+                const usuariosCuenta = c.usuario_cuenta || [];
+                const match = usuariosCuenta.some((uc) => {
+                    const nombre = (uc.usuario && uc.usuario.nombre) ? uc.usuario.nombre.toLowerCase() : '';
+                    return nombre.includes(nombreBuscado);
+                });
+                if (!match) return false;
+            }
+
+            // filtro por rango de fecha de los puestos (vencimiento_usuario)
+            if (usuario_fecha_inicio || usuario_fecha_fin) {
+                const usuariosCuenta = c.usuario_cuenta || [];
+                const anyInRange = usuariosCuenta.some((uc) => {
+                    if (!uc.vencimiento_usuario) return false;
+                    const v = new Date(uc.vencimiento_usuario);
+                    if (usuario_fecha_inicio && new Date(usuario_fecha_inicio) > v) return false;
+                    if (usuario_fecha_fin && new Date(usuario_fecha_fin) < v) return false;
+                    return true;
+                });
+                if (!anyInRange) return false;
+            }
+
+            return true;
+        }).map(c => ({ ...c, usuarios_cuenta: c.usuario_cuenta || [] }));
+
+        res.status(200).json(cuentasFiltradas);
     } catch (error) {
         console.error("Error obteniendo cuentas:", error);
         res.status(500).json({ error: error.message });
