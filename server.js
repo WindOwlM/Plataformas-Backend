@@ -11,7 +11,7 @@ const ventasRoutes = require('./routes/ventas_routes.js');
 
 const app = express();
 
-const origenesPermitidos = ['http://localhost:5173', 'https://tu-proyecto.vercel.app']; // Cambia la URL por la real de Vercel
+const origenesPermitidos = ['http://localhost:5173', 'https://plataformas-frontend.vercel.app']; // Cambia la URL por la real de Vercel
 
 app.use(cors({
     origin: function(origin, callback) {
