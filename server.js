@@ -11,8 +11,16 @@ const ventasRoutes = require('./routes/ventas_routes.js');
 
 const app = express();
 
+const origenesPermitidos = ['http://localhost:5173', 'https://tu-proyecto.vercel.app']; // Cambia la URL por la real de Vercel
+
 app.use(cors({
-    origin: 'http://localhost:5173', // Puerto de Vite
+    origin: function(origin, callback) {
+        if (!origin || origenesPermitidos.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('No permitido por CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
