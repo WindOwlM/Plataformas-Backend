@@ -31,8 +31,11 @@ app.use('/api/cuentas', cuentasRoutes);
 app.use('/api/catalogos', catalogosRoutes); // Maneja /api/catalogos/plataformas y /proveedores
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/ventas', ventasRoutes);
+app.use('/auth', require('./routes/auth.routes'));
+app.use('/emails', require('./routes/email.routes'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en el puerto ${PORT} 🚀`);
+    console.log(`🔗 Autenticación: http://localhost:${PORT}/auth/google`);
 });
