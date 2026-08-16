@@ -40,13 +40,18 @@ class OutlookService {
     const messages = await this.listMessages(limit);
     return messages.map(msg => ({
       id: msg.id,
-      from: msg.from?.emailAddress?.name
-        ? `${msg.from.emailAddress.name} <${msg.from.emailAddress.address}>`
-        : msg.from?.emailAddress?.address || '(Desconocido)',
-      date: msg.receivedDateTime,
-      subject: msg.subject,
-      body: msg.body?.content || msg.bodyPreview || '(Sin contenido)',
-      bodyContentType: msg.body?.contentType || 'text',
+    from: msg.from?.emailAddress?.name
+      ? `${msg.from.emailAddress.name} <${msg.from.emailAddress.address}>`
+      : msg.from?.emailAddress?.address || '(Desconocido)',
+    to: msg.toRecipients?.map(r => 
+      r.emailAddress?.name 
+        ? `${r.emailAddress.name} <${r.emailAddress.address}>`
+        : r.emailAddress?.address
+    ).join(', ') || '',        // ← NUEVO
+    date: msg.receivedDateTime,
+    subject: msg.subject,
+    body: msg.body?.content || msg.bodyPreview || '(Sin contenido)',
+    bodyContentType: msg.body?.contentType || 'text',
     }));
   }
 }

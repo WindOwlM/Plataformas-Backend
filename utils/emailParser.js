@@ -48,6 +48,7 @@ class EmailParser {
       id: msg.id,
       threadId: msg.threadId,
       labelIds: msg.labelIds,
+      to: parsed.to, 
       snippet: msg.snippet,
       ...headers,
       body,
