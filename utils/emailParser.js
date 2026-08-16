@@ -1,12 +1,21 @@
 class EmailParser {
   decodeBase64(data) {
     if (!data) return '';
-    // Gmail usa base64url
     const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
     return Buffer.from(base64, 'base64').toString('utf8');
   }
 
-  extractBody(payload) {
+  normalizeHeaders(headers = []) {
+    if (!headers) return [];
+    if (Array.isArray(headers)) return headers;
+
+    return Object.entries(headers).map(([name, value]) => ({
+      name,
+      value: typeof value === 'string' ? value : value?.value || '',
+    }));
+  }
+
+  extractBody(payload = {}) {
     let body = '';
 
     if (payload.parts) {
@@ -30,30 +39,42 @@ class EmailParser {
     return body || '(Sin contenido de texto)';
   }
 
-  extractHeaders(headers = []) {
+  extractHeaders(rawHeaders = []) {
+    const headers = this.normalizeHeaders(rawHeaders);
     const find = (name) => {
-      const normalizedName = name.toLowerCase();
-      const header = headers.find(h => (h.name || '').toLowerCase() === normalizedName);
+      const key = name.toLowerCase();
+      const header = headers.find((h) => (h.name || h.key || '').toLowerCase() === key);
       return header?.value || '';
     };
+
+    const to =
+      find('To') ||
+      find('Delivered-To') ||
+      find('X-Original-To') ||
+      find('Envelope-To') ||
+      (typeof rawHeaders === 'object' && rawHeaders?.to) ||
+      '';
 
     return {
       subject: find('Subject') || '(Sin asunto)',
       from: find('From') || '(Desconocido)',
-      to: find('To') || find('Delivered-To') || find('X-Original-To') || '(Sin destinatario)',
+      to: to || '(Sin destinatario)',
       date: find('Date') || '',
     };
   }
 
-  parseEmail(msg) {
-    const headers = this.extractHeaders(msg.payload?.headers || []);
-    const body = this.extractBody(msg.payload || {});
+  parseEmail(msg = {}) {
+    const payload = msg.payload || msg.data?.payload || {};
+    const headers = this.extractHeaders(
+      payload.headers || msg.headers || msg.data?.headers || []
+    );
+    const body = this.extractBody(payload);
 
     return {
-      id: msg.id,
-      threadId: msg.threadId,
-      labelIds: msg.labelIds,
-      snippet: msg.snippet,
+      id: msg.id || msg.messageId,
+      threadId: msg.threadId || msg.thread_id,
+      labelIds: msg.labelIds || msg.label_ids || [],
+      snippet: msg.snippet || '',
       ...headers,
       body,
     };
