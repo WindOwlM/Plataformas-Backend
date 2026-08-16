@@ -30,25 +30,29 @@ class EmailParser {
     return body || '(Sin contenido de texto)';
   }
 
-  extractHeaders(headers) {
-    const find = (name) => headers.find(h => h.name === name)?.value || '';
+  extractHeaders(headers = []) {
+    const find = (name) => {
+      const normalizedName = name.toLowerCase();
+      const header = headers.find(h => (h.name || '').toLowerCase() === normalizedName);
+      return header?.value || '';
+    };
+
     return {
       subject: find('Subject') || '(Sin asunto)',
       from: find('From') || '(Desconocido)',
-      to: find('To') || '',
+      to: find('To') || find('Delivered-To') || find('X-Original-To') || '(Sin destinatario)',
       date: find('Date') || '',
     };
   }
 
   parseEmail(msg) {
-    const headers = this.extractHeaders(msg.payload.headers);
-    const body = this.extractBody(msg.payload);
+    const headers = this.extractHeaders(msg.payload?.headers || []);
+    const body = this.extractBody(msg.payload || {});
 
     return {
       id: msg.id,
       threadId: msg.threadId,
       labelIds: msg.labelIds,
-      to: parsed.to, 
       snippet: msg.snippet,
       ...headers,
       body,
