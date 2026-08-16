@@ -5,17 +5,7 @@ class EmailParser {
     return Buffer.from(base64, 'base64').toString('utf8');
   }
 
-  normalizeHeaders(headers = []) {
-    if (!headers) return [];
-    if (Array.isArray(headers)) return headers;
-
-    return Object.entries(headers).map(([name, value]) => ({
-      name,
-      value: typeof value === 'string' ? value : value?.value || '',
-    }));
-  }
-
-  extractBody(payload = {}) {
+  extractBody(payload) {
     let body = '';
 
     if (payload.parts) {
@@ -39,43 +29,26 @@ class EmailParser {
     return body || '(Sin contenido de texto)';
   }
 
-  extractHeaders(rawHeaders = []) {
-    const headers = this.normalizeHeaders(rawHeaders);
-    const find = (name) => {
-      const key = name.toLowerCase();
-      const header = headers.find((h) => (h.name || h.key || '').toLowerCase() === key);
-      return header?.value || '';
-    };
-
-    const to =
-      find('To') ||
-      find('Delivered-To') ||
-      find('X-Original-To') ||
-      find('Envelope-To') ||
-      (typeof rawHeaders === 'object' && rawHeaders?.to) ||
-      '';
-
+  extractHeaders(headers) {
+    const find = (name) => headers.find(h => h.name === name)?.value || '';
     return {
       subject: find('Subject') || '(Sin asunto)',
       from: find('From') || '(Desconocido)',
-      to: to || '(Sin destinatario)',
+      to: find('To') || '',           // ← AGREGADO
       date: find('Date') || '',
     };
   }
 
-  parseEmail(msg = {}) {
-    const payload = msg.payload || msg.data?.payload || {};
-    const headers = this.extractHeaders(
-      payload.headers || msg.headers || msg.data?.headers || []
-    );
-    const body = this.extractBody(payload);
+  parseEmail(msg) {
+    const headers = this.extractHeaders(msg.payload.headers);
+    const body = this.extractBody(msg.payload);
 
     return {
-      id: msg.id || msg.messageId,
-      threadId: msg.threadId || msg.thread_id,
-      labelIds: msg.labelIds || msg.label_ids || [],
-      snippet: msg.snippet || '',
-      ...headers,
+      id: msg.id,
+      threadId: msg.threadId,
+      labelIds: msg.labelIds,
+      snippet: msg.snippet,
+      ...headers,    // Esto ya incluye to, from, subject, date
       body,
     };
   }
