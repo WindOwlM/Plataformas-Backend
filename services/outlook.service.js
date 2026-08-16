@@ -14,13 +14,19 @@ class OutlookService {
     };
   }
 
-  async listMessages(limit = 10) {
-    const { data } = await axios.get(
-      `${GRAPH_API}/me/messages?$top=${limit}&$select=from,receivedDateTime,subject,bodyPreview,body,id`,
-      { headers: this.getHeaders() }
-    );
-    return data.value || [];
-  }
+    async listMessages(limit = 10) {
+    console.log('📡 Llamando a Microsoft Graph con token:', this.access_token?.slice(0, 20) + '...');
+    try {
+        const { data } = await axios.get(
+        `${GRAPH_API}/me/messages?$top=${limit}&$select=from,receivedDateTime,subject,bodyPreview,body,id`,
+        { headers: this.getHeaders() }
+        );
+        return data.value || [];
+    } catch (error) {
+        console.error('❌ Microsoft Graph error:', error.response?.status, error.response?.data);
+        throw error;
+    }
+    }
 
   async getMessage(messageId) {
     const { data } = await axios.get(

@@ -5,8 +5,8 @@ const OUTLOOK_CLIENT_ID = process.env.OUTLOOK_CLIENT_ID;
 const OUTLOOK_CLIENT_SECRET = process.env.OUTLOOK_CLIENT_SECRET;
 const OUTLOOK_REDIRECT_URI = process.env.OUTLOOK_REDIRECT_URI;
 
-const TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
-const AUTH_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
+const TOKEN_ENDPOINT = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
+const AUTH_ENDPOINT = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize';
 
 class OutlookAuthService {
   getAuthUrl(email) {
@@ -98,21 +98,40 @@ class OutlookAuthService {
   }
 
   async createAuthClient(email) {
-    const tokens = await this.loadTokens(email);
-    if (!tokens) {
-      throw new Error(`La cuenta ${email} no está conectada. Ve a /auth/outlook?email=${email}`);
-    }
+  const tokens = await this.loadTokens(email);
+  
+  console.log('📂 Tokens cargados para', email, {
+    has_refresh: !!tokens?.refresh_token,
+    has_access: !!tokens?.access_token,
+    expired: tokens?.expiry_date ? new Date(tokens.expiry_date).toISOString() : 'no date',
+    now: new Date().toISOString(),
+  });
 
-    // Refrescar si expiró
-    if (tokens.expiry_date && Date.now() >= tokens.expiry_date) {
-      console.log(`⏰ Outlook token expirado para ${email}, refrescando...`);
+  if (!tokens) {
+    throw new Error(`La cuenta ${email} no está conectada.`);
+  }
+
+  if (!tokens.refresh_token) {
+    throw new Error(`La cuenta ${email} no tiene refresh_token.`);
+  }
+
+  // Si expiró o no hay access_token, refrescar
+  if (!tokens.access_token || (tokens.expiry_date && Date.now() >= tokens.expiry_date)) {
+    console.log('⏰ Token expirado o no hay access_token, refrescando...');
+    try {
       const refreshed = await this.refreshAccessToken(tokens.refresh_token);
+      console.log('✅ Refrescado exitoso:', { has_access: !!refreshed.access_token });
       await this.saveTokens(email, refreshed);
       return refreshed.access_token;
+    } catch (refreshError) {
+      console.error('❌ Error al refrescar:', refreshError.response?.data || refreshError.message);
+      throw new Error(`No se pudo refrescar el token: ${refreshError.response?.data?.error_description || refreshError.message}`);
     }
-
-    return tokens.access_token;
   }
+
+  console.log('✅ Access token aún válido, se reutiliza');
+  return tokens.access_token;
+}
 }
 
 module.exports = new OutlookAuthService();
