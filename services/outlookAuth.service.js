@@ -16,7 +16,7 @@ class OutlookAuthService {
       redirect_uri: OUTLOOK_REDIRECT_URI,
       scope: 'https://graph.microsoft.com/Mail.Read offline_access openid profile email',
       state: Buffer.from(email).toString('base64'),
-      prompt: 'consent',
+      prompt: 'select_account consent',
     });
     return `${AUTH_ENDPOINT}?${params.toString()}`;
   }
