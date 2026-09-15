@@ -31,9 +31,6 @@ app.use('/api/cuentas', cuentasRoutes);
 app.use('/api/catalogos', catalogosRoutes); // Maneja /api/catalogos/plataformas y /proveedores
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/ventas', ventasRoutes);
-app.use('/auth', require('./routes/auth.routes'));
-app.use('/emails', require('./routes/email.routes'));
-app.use('/outlook', require('./routes/outlook.routes'));
 
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0"
