@@ -18,7 +18,7 @@ const verificarAdmin = async (req, res, next) => {
 
         const { data: adminData, error: adminError } = await supabase
             .from('administrador')
-            .select('rol')
+            .select('nombre, rol')
             .eq('id', authData.user.id)
             .single();
 
@@ -28,6 +28,7 @@ const verificarAdmin = async (req, res, next) => {
 
         req.usuarioAuth = {
             id: authData.user.id,
+            nombre: adminData.nombre,
             rol: adminData.rol
         };
 

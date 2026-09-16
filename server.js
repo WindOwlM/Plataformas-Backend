@@ -7,6 +7,7 @@ const supabase = require('./config/supabase');
 const cuentasRoutes = require('./routes/cuentas_routes.js');
 const catalogosRoutes = require('./routes/catalogos_routes.js');
 const clientesRoutes = require('./routes/clientes_routes.js');
+const meRoutes = require('./routes/me_routes.js');
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use(express.json());
 app.use('/api/cuentas', cuentasRoutes);
 app.use('/api/catalogos', catalogosRoutes); // Maneja /api/catalogos/plataformas y /proveedores
 app.use('/api/clientes', clientesRoutes);
+app.use('/api/me', meRoutes);
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
