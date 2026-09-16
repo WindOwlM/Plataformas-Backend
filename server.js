@@ -32,9 +32,12 @@ app.use('/api/catalogos', catalogosRoutes); // Maneja /api/catalogos/plataformas
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/ventas', ventasRoutes);
 
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
+
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0"
-app.listen(PORT,HOST, () => {
+app.listen(PORT, HOST, () => {
     console.log(`Servidor corriendo en el puerto ${PORT} 🚀`);
-    console.log(`🔗 Autenticación: http://localhost:${PORT}/auth/google`);
 });

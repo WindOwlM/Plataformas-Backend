@@ -1,43 +1,39 @@
 const supabase = require('../config/supabase');
-const { encryptPassword, decryptPassword, isAesEncryptedPassword } = require('../utils/cryptoHelper');
 
 const cuentasController = {};
 
 // CREAR CUENTA con puestos
 cuentasController.crearCuenta = async (req, res) => {
     try {
-        const { 
-            id_plataforma, 
-            id_proveedor, 
-            correo, 
-            contrasena_plana,
+        const {
+            id_plataforma,
+            id_proveedor,
+            correo,
+            contrasena,
             precio_costo,
             fecha_vencimiento,
             notas,
             puestos = []
         } = req.body;
 
-        console.log('Recibido:', { correo, puestosCount: puestos.length });
-
         if (!fecha_vencimiento) {
             return res.status(400).json({ error: 'La fecha de vencimiento es obligatoria.' });
         }
 
-        if (!contrasena_plana) {
+        if (!contrasena) {
             return res.status(400).json({ error: 'La contraseña es obligatoria.' });
         }
-
-        const contrasenaCifrada = encryptPassword(contrasena_plana);
 
         // 1. Crear la cuenta
         const { data: cuentaData, error: cuentaError } = await supabase
             .from('cuenta')
-            .insert([{ 
+            .insert([{
                 id_plataforma,
                 id_proveedor,
                 correo,
-                contrasena_encriptada: contrasenaCifrada,
-                contrasena_recuperable: contrasena_plana,
+                contrasena,
+                precio_costo,
+                fecha_vencimiento,
                 fecha_agregado: new Date().toISOString().split('T')[0],
                 notas: notas || null,
                 estado: 'disponible'
@@ -50,39 +46,34 @@ cuentasController.crearCuenta = async (req, res) => {
         }
 
         const cuenta = cuentaData[0];
-        console.log('Cuenta creada:', cuenta.id);
 
         // 2. Crear los puestos en usuario_cuenta
-        const puestosValidos = puestos.filter(p => p.pin || p.id_usuario);
-        
+        const puestosValidos = puestos.filter(p => p.id_usuario);
+
         if (puestosValidos.length > 0) {
             const puestosParaInsertar = puestosValidos.map(p => ({
-                id_usuario: p.id_usuario || null,
+                id_usuario: p.id_usuario,
                 id_cuenta: cuenta.id,
                 pin: p.pin || null,
                 vencimiento_usuario: p.vencimiento_usuario || null,
                 es_combo: p.es_combo || false,
                 valor_venta: p.valor_venta || 0,
-                estado: p.id_usuario ? 'activa' : 'disponible',
-                fecha_venta: p.id_usuario ? new Date().toISOString() : null
+                estado: 'activa',
+                fecha_venta: new Date().toISOString()
             }));
 
-            console.log('Insertando puestos:', puestosParaInsertar.length);
-
-            const { data: puestosData, error: puestosError } = await supabase
+            const { error: puestosError } = await supabase
                 .from('usuario_cuenta')
-                .insert(puestosParaInsertar)
-                .select();
+                .insert(puestosParaInsertar);
 
             if (puestosError) {
                 console.error('Error creando puestos:', puestosError);
-            } else {
-                console.log('Puestos creados:', puestosData?.length);
+                throw puestosError;
             }
         }
 
         // 3. Actualizar estado si hay ventas
-        const tieneVentas = puestos.some(p => p.id_usuario);
+        const tieneVentas = puestosValidos.length > 0;
         if (tieneVentas) {
             await supabase
                 .from('cuenta')
@@ -144,8 +135,6 @@ cuentasController.obtenerCuentas = async (req, res) => {
 
         if (estado) query = query.eq('estado', estado);
         if (plataforma) query = query.eq('id_plataforma', plataforma);
-
-        // Filtrado por rango de fecha de vencimiento de la cuenta (si se provee)
         if (fecha_inicio) query = query.gte('fecha_vencimiento', fecha_inicio);
         if (fecha_fin) query = query.lte('fecha_vencimiento', fecha_fin);
 
@@ -155,13 +144,11 @@ cuentasController.obtenerCuentas = async (req, res) => {
 
         // Filtrado adicional en memoria para búsquedas por correo y nombre de usuario
         const cuentasFiltradas = (data || []).filter((c) => {
-            // filtro por correo
             if (correo) {
                 const correoNorm = (c.correo || '').toLowerCase();
                 if (!correoNorm.includes(correo.toLowerCase())) return false;
             }
 
-            // filtro por nombre de usuario (busca en cualquiera de los puestos)
             if (usuario) {
                 const nombreBuscado = usuario.toLowerCase();
                 const usuariosCuenta = c.usuario_cuenta || [];
@@ -172,7 +159,6 @@ cuentasController.obtenerCuentas = async (req, res) => {
                 if (!match) return false;
             }
 
-            // filtro por rango de fecha de los puestos (vencimiento_usuario)
             if (usuario_fecha_inicio || usuario_fecha_fin) {
                 const usuariosCuenta = c.usuario_cuenta || [];
                 const anyInRange = usuariosCuenta.some((uc) => {
@@ -199,21 +185,26 @@ cuentasController.obtenerCuentas = async (req, res) => {
 cuentasController.actualizarCuenta = async (req, res) => {
     try {
         const { id } = req.params;
-        const { correo, id_plataforma, id_proveedor, precio_costo, fecha_vencimiento, notas, contrasena_plana, puestos = [] } = req.body;
-        
+        const {
+            correo,
+            id_plataforma,
+            id_proveedor,
+            precio_costo,
+            fecha_vencimiento,
+            notas,
+            contrasena,
+            puestos = []
+        } = req.body;
+
         let actualizaciones = {};
-        
+
         if (correo !== undefined) actualizaciones.correo = correo;
         if (id_plataforma !== undefined) actualizaciones.id_plataforma = id_plataforma;
         if (id_proveedor !== undefined) actualizaciones.id_proveedor = id_proveedor;
         if (precio_costo !== undefined) actualizaciones.precio_costo = precio_costo;
         if (fecha_vencimiento !== undefined) actualizaciones.fecha_vencimiento = fecha_vencimiento;
         if (notas !== undefined) actualizaciones.notas = notas;
-
-        if (contrasena_plana) {
-            actualizaciones.contrasena_encriptada = encryptPassword(contrasena_plana);
-            actualizaciones.contrasena_recuperable = contrasena_plana;
-        }
+        if (contrasena) actualizaciones.contrasena = contrasena;
 
         const { data, error } = await supabase
             .from('cuenta')
@@ -236,17 +227,17 @@ cuentasController.actualizarCuenta = async (req, res) => {
 
         const existingPuestosIds = (existingPuestosResult.data || []).map((p) => p.id);
         const puestosParaProcesar = puestosPayload
-            .filter(p => p.id_usuario || p.pin || p.id)
+            .filter(p => p.id_usuario || p.id)
             .map(p => ({
                 ...(p.id ? { id: p.id } : {}),
-                id_usuario: p.id_usuario || null,
+                id_usuario: p.id_usuario,
                 id_cuenta: cuenta.id,
                 pin: p.pin || null,
                 vencimiento_usuario: p.vencimiento_usuario || null,
                 es_combo: p.es_combo || false,
                 valor_venta: p.valor_venta || 0,
-                estado: p.id_usuario ? 'activa' : 'disponible',
-                fecha_venta: p.id_usuario ? new Date().toISOString() : null
+                estado: p.estado || 'activa',
+                fecha_venta: p.fecha_venta || new Date().toISOString()
             }));
 
         const puestosConId = puestosParaProcesar.filter(p => p.id);
@@ -328,14 +319,14 @@ cuentasController.actualizarCuenta = async (req, res) => {
 cuentasController.eliminarCuenta = async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const { error } = await supabase
             .from('cuenta')
             .delete()
             .eq('id', id);
 
         if (error) throw error;
-        
+
         res.status(200).json({ mensaje: 'Cuenta eliminada' });
     } catch (error) {
         console.error("Error eliminando cuenta:", error);
@@ -343,27 +334,23 @@ cuentasController.eliminarCuenta = async (req, res) => {
     }
 };
 
+// OBTENER CONTRASEÑA (texto plano directo, sin descifrado)
 cuentasController.obtenerContrasena = async (req, res) => {
     try {
         const { id } = req.params;
 
         const { data, error } = await supabase
             .from('cuenta')
-            .select('id, contrasena_recuperable')
+            .select('id, contrasena')
             .eq('id', id)
             .single();
 
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Cuenta no encontrada' });
 
-        const contrasena = data.contrasena_recuperable;
-        if (!contrasena) {
-            return res.status(404).json({ error: 'No hay contraseña recuperable disponible' });
-        }
-
-        res.status(200).json({ contrasena });
+        res.status(200).json({ contrasena: data.contrasena });
     } catch (error) {
-        console.error('Error obteniendo contraseña descifrada:', error);
+        console.error('Error obteniendo contraseña:', error);
         res.status(500).json({ error: error.message });
     }
 };
