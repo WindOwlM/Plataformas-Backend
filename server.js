@@ -10,7 +10,7 @@ const clientesRoutes = require('./routes/clientes_routes.js');
 
 const app = express();
 
-const origenesPermitidos = ['http://localhost:5173', 'https://plataformas-frontend.vercel.app']; // Cambia la URL por la real de Vercel
+const origenesPermitidos = ['http://localhost:5173', 'https://plataformas-frontend.vercel.app']; 
 
 app.use(cors({
     origin: function(origin, callback) {
