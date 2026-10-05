@@ -10,17 +10,20 @@ cuentasController.crearCuenta = async (req, res) => {
             id_proveedor,
             correo,
             contrasena,
+            contrasena_plana,
             precio_costo,
             fecha_vencimiento,
             notas,
             puestos = []
         } = req.body;
 
+        const password = contrasena || contrasena_plana;
+
         if (!fecha_vencimiento) {
             return res.status(400).json({ error: 'La fecha de vencimiento es obligatoria.' });
         }
 
-        if (!contrasena) {
+        if (!password) {
             return res.status(400).json({ error: 'La contraseña es obligatoria.' });
         }
 
@@ -31,7 +34,7 @@ cuentasController.crearCuenta = async (req, res) => {
                 id_plataforma,
                 id_proveedor,
                 correo,
-                contrasena,
+                contrasena: password,
                 precio_costo,
                 fecha_vencimiento,
                 fecha_agregado: new Date().toISOString().split('T')[0],
@@ -351,6 +354,144 @@ cuentasController.obtenerContrasena = async (req, res) => {
         res.status(200).json({ contrasena: data.contrasena });
     } catch (error) {
         console.error('Error obteniendo contraseña:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+async function actualizarEstadoCuenta(idCuenta) {
+    const { data, error } = await supabase
+        .from('usuario_cuenta')
+        .select('id')
+        .eq('id_cuenta', idCuenta);
+
+    if (error) throw error;
+
+    const tieneVentas = (data || []).length > 0;
+    await supabase
+        .from('cuenta')
+        .update({ estado: tieneVentas ? 'vendida' : 'disponible' })
+        .eq('id', idCuenta);
+}
+
+const puestoSelect = `
+    id,
+    id_usuario,
+    id_cuenta,
+    pin,
+    vencimiento_usuario,
+    es_combo,
+    valor_venta,
+    estado,
+    fecha_venta,
+    usuario ( nombre, numero_telefono )
+`;
+
+cuentasController.crearPuesto = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            id_usuario,
+            pin,
+            vencimiento_usuario,
+            es_combo = false,
+            valor_venta = 0,
+        } = req.body;
+
+        if (!id_usuario) {
+            return res.status(400).json({ error: 'Debes seleccionar un cliente ya creado.' });
+        }
+
+        const { data: cuenta, error: cuentaError } = await supabase
+            .from('cuenta')
+            .select('id')
+            .eq('id', id)
+            .single();
+
+        if (cuentaError || !cuenta) {
+            return res.status(404).json({ error: 'Cuenta no encontrada' });
+        }
+
+        const { data: puesto, error } = await supabase
+            .from('usuario_cuenta')
+            .insert([{
+                id_usuario,
+                id_cuenta: id,
+                pin: pin || null,
+                vencimiento_usuario: vencimiento_usuario || null,
+                es_combo: !!es_combo,
+                valor_venta: parseFloat(valor_venta) || 0,
+                estado: 'activa',
+                fecha_venta: new Date().toISOString(),
+            }])
+            .select(puestoSelect)
+            .single();
+
+        if (error) throw error;
+
+        await actualizarEstadoCuenta(id);
+
+        res.status(201).json({ mensaje: 'Puesto asignado', puesto });
+    } catch (error) {
+        console.error('Error creando puesto:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+cuentasController.actualizarPuesto = async (req, res) => {
+    try {
+        const { id, puestoId } = req.params;
+        const {
+            id_usuario,
+            pin,
+            vencimiento_usuario,
+            es_combo,
+            valor_venta,
+            estado,
+        } = req.body;
+
+        const actualizaciones = {};
+        if (id_usuario !== undefined) actualizaciones.id_usuario = id_usuario;
+        if (pin !== undefined) actualizaciones.pin = pin || null;
+        if (vencimiento_usuario !== undefined) actualizaciones.vencimiento_usuario = vencimiento_usuario || null;
+        if (es_combo !== undefined) actualizaciones.es_combo = !!es_combo;
+        if (valor_venta !== undefined) actualizaciones.valor_venta = parseFloat(valor_venta) || 0;
+        if (estado !== undefined) actualizaciones.estado = estado;
+
+        const { data: puesto, error } = await supabase
+            .from('usuario_cuenta')
+            .update(actualizaciones)
+            .eq('id', puestoId)
+            .eq('id_cuenta', id)
+            .select(puestoSelect)
+            .single();
+
+        if (error) throw error;
+        if (!puesto) return res.status(404).json({ error: 'Puesto no encontrado' });
+
+        res.status(200).json({ mensaje: 'Puesto actualizado', puesto });
+    } catch (error) {
+        console.error('Error actualizando puesto:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+cuentasController.eliminarPuesto = async (req, res) => {
+    try {
+        const { id, puestoId } = req.params;
+
+        const { error } = await supabase
+            .from('usuario_cuenta')
+            .delete()
+            .eq('id', puestoId)
+            .eq('id_cuenta', id);
+
+        if (error) throw error;
+
+        await actualizarEstadoCuenta(id);
+
+        res.status(200).json({ mensaje: 'Puesto eliminado' });
+    } catch (error) {
+        console.error('Error eliminando puesto:', error);
         res.status(500).json({ error: error.message });
     }
 };

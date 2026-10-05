@@ -23,6 +23,13 @@ const verificarAdmin = async (req, res, next) => {
             .single();
 
         if (adminError || !adminData) {
+            console.error('Admin lookup failed:', {
+                userId: authData.user.id,
+                code: adminError?.code,
+                message: adminError?.message,
+                details: adminError?.details,
+                hint: adminError?.hint,
+            });
             return res.status(403).json({ error: 'Acceso denegado. No tienes permisos de administrador.' });
         }
 
