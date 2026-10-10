@@ -11,11 +11,25 @@ const meRoutes = require('./routes/me_routes.js');
 
 const app = express();
 
-const origenesPermitidos = ['http://localhost:5173', 'https://plataformas-frontend.vercel.app']; 
+const origenesPermitidos = [
+    'http://localhost:5173',
+    'https://plataformas-frontend.vercel.app',
+];
+
+function origenPermitido(origin) {
+    if (!origin) return true;
+    if (origenesPermitidos.includes(origin)) return true;
+    try {
+        const { hostname } = new URL(origin);
+        return hostname.endsWith('.vercel.app');
+    } catch {
+        return false;
+    }
+}
 
 app.use(cors({
     origin: function(origin, callback) {
-        if (!origin || origenesPermitidos.includes(origin)) {
+        if (origenPermitido(origin)) {
             callback(null, true);
         } else {
             callback(new Error('No permitido por CORS'));

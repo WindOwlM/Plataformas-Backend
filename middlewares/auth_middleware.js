@@ -1,4 +1,5 @@
 const supabase = require('../config/supabase');
+const { createUserClient } = supabase;
 
 const verificarAdmin = async (req, res, next) => {
     try {
@@ -16,13 +17,31 @@ const verificarAdmin = async (req, res, next) => {
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
-        const { data: adminData, error: adminError } = await supabase
+        let adminData = null;
+        let adminError = null;
+
+        const serviceLookup = await supabase
             .from('administrador')
             .select('nombre, rol')
             .eq('id', authData.user.id)
-            .single();
+            .maybeSingle();
 
-        if (adminError || !adminData) {
+        adminData = serviceLookup.data;
+        adminError = serviceLookup.error;
+
+        if (!adminData) {
+            const userClient = createUserClient(token);
+            const userLookup = await userClient
+                .from('administrador')
+                .select('nombre, rol')
+                .eq('id', authData.user.id)
+                .maybeSingle();
+
+            adminData = userLookup.data;
+            adminError = userLookup.error || adminError;
+        }
+
+        if (!adminData) {
             console.error('Admin lookup failed:', {
                 userId: authData.user.id,
                 code: adminError?.code,
@@ -36,13 +55,12 @@ const verificarAdmin = async (req, res, next) => {
         req.usuarioAuth = {
             id: authData.user.id,
             nombre: adminData.nombre,
-            rol: adminData.rol
+            rol: adminData.rol,
         };
 
         next();
-
     } catch (error) {
-        console.error("Error en middleware de auth:", error);
+        console.error('Error en middleware de auth:', error);
         res.status(500).json({ error: 'Error interno del servidor al verificar la identidad.' });
     }
 };
