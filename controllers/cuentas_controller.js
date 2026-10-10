@@ -112,6 +112,7 @@ cuentasController.obtenerCuentas = async (req, res) => {
             plataforma,
             correo,
             usuario,
+            id_usuario,
             fecha_inicio,
             fecha_fin,
             usuario_fecha_inicio,
@@ -150,6 +151,12 @@ cuentasController.obtenerCuentas = async (req, res) => {
             if (correo) {
                 const correoNorm = (c.correo || '').toLowerCase();
                 if (!correoNorm.includes(correo.toLowerCase())) return false;
+            }
+
+            if (id_usuario) {
+                const usuariosCuenta = c.usuario_cuenta || [];
+                const match = usuariosCuenta.some((uc) => uc.id_usuario === id_usuario);
+                if (!match) return false;
             }
 
             if (usuario) {
