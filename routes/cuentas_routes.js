@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const cuentasController = require('../controllers/cuentas_controller.js');
+const porUbicarController = require('../controllers/por_ubicar_controller.js');
 const verificarAdmin = require('../middlewares/auth_middleware.js');
 
 router.post('/crear', verificarAdmin, cuentasController.crearCuenta);
@@ -8,6 +9,7 @@ router.get('/', verificarAdmin, cuentasController.obtenerCuentas);
 router.get('/:id/contrasena', verificarAdmin, cuentasController.obtenerContrasena);
 router.post('/:id/puestos', verificarAdmin, cuentasController.crearPuesto);
 router.patch('/:id/puestos/:puestoId', verificarAdmin, cuentasController.actualizarPuesto);
+router.post('/:id/puestos/:puestoId/ubicar', verificarAdmin, porUbicarController.moverDesdeCuenta);
 router.delete('/:id/puestos/:puestoId', verificarAdmin, cuentasController.eliminarPuesto);
 router.patch('/:id', verificarAdmin, cuentasController.actualizarCuenta);
 router.delete('/:id', verificarAdmin, cuentasController.eliminarCuenta);

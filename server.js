@@ -8,6 +8,7 @@ const cuentasRoutes = require('./routes/cuentas_routes.js');
 const catalogosRoutes = require('./routes/catalogos_routes.js');
 const clientesRoutes = require('./routes/clientes_routes.js');
 const meRoutes = require('./routes/me_routes.js');
+const porUbicarRoutes = require('./routes/por_ubicar_routes.js');
 
 const app = express();
 
@@ -45,6 +46,7 @@ app.use('/api/cuentas', cuentasRoutes);
 app.use('/api/catalogos', catalogosRoutes); // Maneja /api/catalogos/plataformas y /proveedores
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/me', meRoutes);
+app.use('/api/por-ubicar', porUbicarRoutes);
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });

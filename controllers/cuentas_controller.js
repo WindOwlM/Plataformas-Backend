@@ -1,4 +1,10 @@
 const supabase = require('../config/supabase');
+const {
+    actualizarEstadoCuenta,
+    asegurarCupo,
+    maxPuestosPlataforma,
+    decorarCuenta,
+} = require('../lib/cuentaEstado');
 
 const cuentasController = {};
 
@@ -27,6 +33,15 @@ cuentasController.crearCuenta = async (req, res) => {
             return res.status(400).json({ error: 'La contraseña es obligatoria.' });
         }
 
+        const puestosValidos = puestos.filter(p => p.id_usuario);
+        const maxPuestos = await maxPuestosPlataforma(supabase, id_plataforma);
+
+        if (puestosValidos.length > maxPuestos) {
+            return res.status(400).json({
+                error: `Esta plataforma admite máximo ${maxPuestos} puestos.`,
+            });
+        }
+
         // 1. Crear la cuenta
         const { data: cuentaData, error: cuentaError } = await supabase
             .from('cuenta')
@@ -51,8 +66,6 @@ cuentasController.crearCuenta = async (req, res) => {
         const cuenta = cuentaData[0];
 
         // 2. Crear los puestos en usuario_cuenta
-        const puestosValidos = puestos.filter(p => p.id_usuario);
-
         if (puestosValidos.length > 0) {
             const puestosParaInsertar = puestosValidos.map(p => ({
                 id_usuario: p.id_usuario,
@@ -75,20 +88,15 @@ cuentasController.crearCuenta = async (req, res) => {
             }
         }
 
-        // 3. Actualizar estado si hay ventas
-        const tieneVentas = puestosValidos.length > 0;
-        if (tieneVentas) {
-            await supabase
-                .from('cuenta')
-                .update({ estado: 'vendida' })
-                .eq('id', cuenta.id);
-        }
+        const ocupacion = await actualizarEstadoCuenta(supabase, cuenta.id);
 
         res.status(201).json({
             mensaje: 'Cuenta y puestos creados exitosamente',
             cuenta: {
                 ...cuenta,
-                estado: tieneVentas ? 'vendida' : 'disponible'
+                estado: ocupacion.estado,
+                max_puestos: ocupacion.max,
+                ocupados: ocupacion.ocupados,
             }
         });
 
@@ -123,7 +131,7 @@ cuentasController.obtenerCuentas = async (req, res) => {
             .from('cuenta')
             .select(`
                 *,
-                plataforma ( nombre_plat ),
+                plataforma ( * ),
                 proveedor ( nombre_prov ),
                 usuario_cuenta (
                     id,
@@ -137,7 +145,6 @@ cuentasController.obtenerCuentas = async (req, res) => {
                 )
             `);
 
-        if (estado) query = query.eq('estado', estado);
         if (plataforma) query = query.eq('id_plataforma', plataforma);
         if (fecha_inicio) query = query.gte('fecha_vencimiento', fecha_inicio);
         if (fecha_fin) query = query.lte('fecha_vencimiento', fecha_fin);
@@ -182,7 +189,13 @@ cuentasController.obtenerCuentas = async (req, res) => {
             }
 
             return true;
-        }).map(c => ({ ...c, usuarios_cuenta: c.usuario_cuenta || [] }));
+        }).map(c => ({
+            ...decorarCuenta(c),
+            usuarios_cuenta: c.usuario_cuenta || [],
+        })).filter((c) => {
+            if (!estado) return true;
+            return c.estado === estado;
+        });
 
         res.status(200).json(cuentasFiltradas);
     } catch (error) {
@@ -227,6 +240,17 @@ cuentasController.actualizarCuenta = async (req, res) => {
 
         const cuenta = data[0];
         const puestosPayload = Array.isArray(puestos) ? puestos : [];
+        const ocupadosFinal = puestosPayload.filter((p) => p.id_usuario).length;
+        const maxPuestos = await maxPuestosPlataforma(
+            supabase,
+            id_plataforma !== undefined ? id_plataforma : cuenta.id_plataforma
+        );
+
+        if (ocupadosFinal > maxPuestos) {
+            return res.status(400).json({
+                error: `Esta plataforma admite máximo ${maxPuestos} puestos.`,
+            });
+        }
 
         const existingPuestosResult = await supabase
             .from('usuario_cuenta')
@@ -284,17 +308,13 @@ cuentasController.actualizarCuenta = async (req, res) => {
             if (errorInsertarPuestos) throw errorInsertarPuestos;
         }
 
-        const tieneVentas = puestosPayload.some(p => p.id_usuario);
-        await supabase
-            .from('cuenta')
-            .update({ estado: tieneVentas ? 'vendida' : 'disponible' })
-            .eq('id', cuenta.id);
+        await actualizarEstadoCuenta(supabase, cuenta.id);
 
         const { data: cuentaActualizada, error: errorCuentaActualizada } = await supabase
             .from('cuenta')
             .select(`
                 *,
-                plataforma ( nombre_plat ),
+                plataforma ( * ),
                 proveedor ( nombre_prov ),
                 usuario_cuenta (
                     id,
@@ -315,7 +335,7 @@ cuentasController.actualizarCuenta = async (req, res) => {
         res.status(200).json({
             mensaje: 'Cuenta actualizada',
             cuenta: {
-                ...cuentaActualizada,
+                ...decorarCuenta(cuentaActualizada),
                 usuarios_cuenta: cuentaActualizada.usuario_cuenta || []
             }
         });
@@ -365,21 +385,6 @@ cuentasController.obtenerContrasena = async (req, res) => {
     }
 };
 
-async function actualizarEstadoCuenta(idCuenta) {
-    const { data, error } = await supabase
-        .from('usuario_cuenta')
-        .select('id')
-        .eq('id_cuenta', idCuenta);
-
-    if (error) throw error;
-
-    const tieneVentas = (data || []).length > 0;
-    await supabase
-        .from('cuenta')
-        .update({ estado: tieneVentas ? 'vendida' : 'disponible' })
-        .eq('id', idCuenta);
-}
-
 const puestoSelect = `
     id,
     id_usuario,
@@ -418,6 +423,8 @@ cuentasController.crearPuesto = async (req, res) => {
             return res.status(404).json({ error: 'Cuenta no encontrada' });
         }
 
+        await asegurarCupo(supabase, id, 1);
+
         const { data: puesto, error } = await supabase
             .from('usuario_cuenta')
             .insert([{
@@ -435,12 +442,13 @@ cuentasController.crearPuesto = async (req, res) => {
 
         if (error) throw error;
 
-        await actualizarEstadoCuenta(id);
+        await actualizarEstadoCuenta(supabase, id);
 
         res.status(201).json({ mensaje: 'Puesto asignado', puesto });
     } catch (error) {
         console.error('Error creando puesto:', error);
-        res.status(500).json({ error: error.message });
+        const status = error.status || 500;
+        res.status(status).json({ error: error.message });
     }
 };
 
@@ -494,7 +502,7 @@ cuentasController.eliminarPuesto = async (req, res) => {
 
         if (error) throw error;
 
-        await actualizarEstadoCuenta(id);
+        await actualizarEstadoCuenta(supabase, id);
 
         res.status(200).json({ mensaje: 'Puesto eliminado' });
     } catch (error) {

@@ -5,10 +5,17 @@ const catalogosController = {};
 // --- PLATAFORMAS ---
 catalogosController.crearPlataforma = async (req, res) => {
     try {
-        const { nombre_plat } = req.body;
-        const { data, error } = await supabase.from('plataforma').insert([{ nombre_plat }]).select();
+        const { nombre_plat, max_puestos } = req.body;
+        const payload = {
+            nombre_plat,
+            max_puestos: Number(max_puestos) > 0 ? Number(max_puestos) : 5,
+        };
+        let { data, error } = await supabase.from('plataforma').insert([payload]).select();
+        if (error) {
+            ({ data, error } = await supabase.from('plataforma').insert([{ nombre_plat }]).select());
+        }
         if (error) throw error;
-        res.status(201).json(data[0]);
+        res.status(201).json({ ...data[0], max_puestos: payload.max_puestos });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -49,14 +56,25 @@ catalogosController.obtenerProveedores = async (req, res) => {
 catalogosController.actualizarPlataforma = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nombre_plat } = req.body;
-        
-        // Supabase ignorará los valores 'undefined' automáticamente
-        const { data, error } = await supabase
+        const { nombre_plat, max_puestos } = req.body;
+        const actualizaciones = {};
+        if (nombre_plat !== undefined) actualizaciones.nombre_plat = nombre_plat;
+        if (max_puestos !== undefined) actualizaciones.max_puestos = Number(max_puestos) || 5;
+
+        let { data, error } = await supabase
             .from('plataforma')
-            .update({ nombre_plat })
+            .update(actualizaciones)
             .eq('id', id)
             .select();
+
+        if (error && actualizaciones.max_puestos !== undefined) {
+            const { max_puestos: _omit, ...resto } = actualizaciones;
+            ({ data, error } = await supabase
+                .from('plataforma')
+                .update(resto)
+                .eq('id', id)
+                .select());
+        }
 
         if (error) throw error;
         if (data.length === 0) return res.status(404).json({ error: 'Plataforma no encontrada' });
