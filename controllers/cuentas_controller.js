@@ -7,6 +7,7 @@ const {
 } = require('../lib/cuentaEstado');
 const { CUENTA_PUBLIC_SELECT, VENCIMIENTOS_SELECT } = require('../lib/cuentaSelect');
 const { buildVencimientoItems } = require('../lib/vencimientos');
+const { incluirCuentasCombo } = require('../lib/combos');
 
 const cuentasController = {};
 
@@ -182,7 +183,11 @@ cuentasController.obtenerCuentas = async (req, res) => {
             return c.estado === estado;
         });
 
-        res.status(200).json(cuentasFiltradas);
+        const conCombos = limite > 0
+            ? cuentasFiltradas
+            : await incluirCuentasCombo(supabase, cuentasFiltradas);
+
+        res.status(200).json(conCombos);
     } catch (error) {
         console.error("Error obteniendo cuentas:", error);
         res.status(500).json({ error: error.message });
