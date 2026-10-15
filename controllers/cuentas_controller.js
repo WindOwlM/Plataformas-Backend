@@ -127,7 +127,8 @@ cuentasController.obtenerCuentas = async (req, res) => {
             fecha_inicio,
             fecha_fin,
             usuario_fecha_inicio,
-            usuario_fecha_fin
+            usuario_fecha_fin,
+            limit
         } = req.query;
 
         let query = supabase
@@ -138,6 +139,9 @@ cuentasController.obtenerCuentas = async (req, res) => {
         if (correo) query = query.ilike('correo', `%${correo}%`);
         if (fecha_inicio) query = query.gte('fecha_vencimiento', fecha_inicio);
         if (fecha_fin) query = query.lte('fecha_vencimiento', fecha_fin);
+
+        const limite = Math.min(Number(limit) || 0, 50);
+        if (limite > 0) query = query.limit(limite);
 
         const { data, error } = await query.order('fecha_vencimiento', { ascending: true });
 
