@@ -5,6 +5,8 @@ const {
     maxPuestosPlataforma,
     decorarCuenta,
 } = require('../lib/cuentaEstado');
+const { CUENTA_PUBLIC_SELECT, VENCIMIENTOS_SELECT } = require('../lib/cuentaSelect');
+const { buildVencimientoItems } = require('../lib/vencimientos');
 
 const cuentasController = {};
 
@@ -89,11 +91,12 @@ cuentasController.crearCuenta = async (req, res) => {
         }
 
         const ocupacion = await actualizarEstadoCuenta(supabase, cuenta.id);
+        const { contrasena: _omit, ...cuentaPublica } = cuenta;
 
         res.status(201).json({
             mensaje: 'Cuenta y puestos creados exitosamente',
             cuenta: {
-                ...cuenta,
+                ...cuentaPublica,
                 estado: ocupacion.estado,
                 max_puestos: ocupacion.max,
                 ocupados: ocupacion.ocupados,
@@ -129,23 +132,10 @@ cuentasController.obtenerCuentas = async (req, res) => {
 
         let query = supabase
             .from('cuenta')
-            .select(`
-                *,
-                plataforma ( * ),
-                proveedor ( nombre_prov ),
-                usuario_cuenta (
-                    id,
-                    id_usuario,
-                    pin,
-                    vencimiento_usuario,
-                    es_combo,
-                    valor_venta,
-                    estado,
-                    usuario ( nombre, numero_telefono )
-                )
-            `);
+            .select(CUENTA_PUBLIC_SELECT);
 
         if (plataforma) query = query.eq('id_plataforma', plataforma);
+        if (correo) query = query.ilike('correo', `%${correo}%`);
         if (fecha_inicio) query = query.gte('fecha_vencimiento', fecha_inicio);
         if (fecha_fin) query = query.lte('fecha_vencimiento', fecha_fin);
 
@@ -153,13 +143,7 @@ cuentasController.obtenerCuentas = async (req, res) => {
 
         if (error) throw error;
 
-        // Filtrado adicional en memoria para búsquedas por correo y nombre de usuario
         const cuentasFiltradas = (data || []).filter((c) => {
-            if (correo) {
-                const correoNorm = (c.correo || '').toLowerCase();
-                if (!correoNorm.includes(correo.toLowerCase())) return false;
-            }
-
             if (id_usuario) {
                 const usuariosCuenta = c.usuario_cuenta || [];
                 const match = usuariosCuenta.some((uc) => uc.id_usuario === id_usuario);
@@ -189,10 +173,7 @@ cuentasController.obtenerCuentas = async (req, res) => {
             }
 
             return true;
-        }).map(c => ({
-            ...decorarCuenta(c),
-            usuarios_cuenta: c.usuario_cuenta || [],
-        })).filter((c) => {
+        }).map(decorarCuenta).filter((c) => {
             if (!estado) return true;
             return c.estado === estado;
         });
@@ -200,6 +181,25 @@ cuentasController.obtenerCuentas = async (req, res) => {
         res.status(200).json(cuentasFiltradas);
     } catch (error) {
         console.error("Error obteniendo cuentas:", error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+cuentasController.obtenerVencimientos = async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('cuenta')
+            .select(VENCIMIENTOS_SELECT);
+
+        if (error) throw error;
+
+        const { items, counts } = buildVencimientoItems(data || []);
+        const bucket = req.query.bucket;
+        const filtrados = bucket ? items.filter((i) => i.bucket === bucket) : items;
+
+        res.status(200).json({ items: filtrados, counts });
+    } catch (error) {
+        console.error('Error obteniendo vencimientos:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -312,21 +312,7 @@ cuentasController.actualizarCuenta = async (req, res) => {
 
         const { data: cuentaActualizada, error: errorCuentaActualizada } = await supabase
             .from('cuenta')
-            .select(`
-                *,
-                plataforma ( * ),
-                proveedor ( nombre_prov ),
-                usuario_cuenta (
-                    id,
-                    id_usuario,
-                    pin,
-                    vencimiento_usuario,
-                    es_combo,
-                    valor_venta,
-                    estado,
-                    usuario ( nombre, numero_telefono )
-                )
-            `)
+            .select(CUENTA_PUBLIC_SELECT)
             .eq('id', cuenta.id)
             .single();
 
@@ -334,10 +320,7 @@ cuentasController.actualizarCuenta = async (req, res) => {
 
         res.status(200).json({
             mensaje: 'Cuenta actualizada',
-            cuenta: {
-                ...decorarCuenta(cuentaActualizada),
-                usuarios_cuenta: cuentaActualizada.usuario_cuenta || []
-            }
+            cuenta: decorarCuenta(cuentaActualizada),
         });
     } catch (error) {
         console.error("Error actualizando cuenta:", error);
