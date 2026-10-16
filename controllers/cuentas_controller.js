@@ -236,6 +236,106 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
     }
 };
 
+cuentasController.renovarAsignaciones = async (req, res) => {
+    try {
+        const { id_usuario, puestos_origen = [], lineas = [] } = req.body;
+
+        if (!id_usuario) {
+            return res.status(400).json({ error: 'Falta el cliente.' });
+        }
+        if (!Array.isArray(lineas) || lineas.length === 0) {
+            return res.status(400).json({ error: 'Debes dejar al menos una plataforma.' });
+        }
+
+        for (const linea of lineas) {
+            if (!linea.id_cuenta) {
+                return res.status(400).json({ error: 'Cada plataforma debe tener una cuenta con cupo.' });
+            }
+            if (!linea.vencimiento_usuario || !/^\d{4}-\d{2}-\d{2}$/.test(linea.vencimiento_usuario)) {
+                return res.status(400).json({ error: 'Cada plataforma debe tener fecha de vencimiento.' });
+            }
+        }
+
+        const { data: actuales, error: actualesError } = await supabase
+            .from('usuario_cuenta')
+            .select('id, id_cuenta')
+            .eq('id_usuario', id_usuario);
+        if (actualesError) throw actualesError;
+
+        const porId = new Map((actuales || []).map((fila) => [fila.id, fila]));
+        const origen = new Set((puestos_origen || []).filter(Boolean));
+        const idsGuardar = new Set(lineas.map((linea) => linea.id_puesto).filter(Boolean));
+        const esCombo = lineas.length > 1;
+        const afectadas = new Set();
+        const eliminados = new Set();
+
+        async function borrarPuesto(idPuesto, idCuenta) {
+            if (!idPuesto || eliminados.has(idPuesto)) return;
+            const { error } = await supabase
+                .from('usuario_cuenta')
+                .delete()
+                .eq('id', idPuesto)
+                .eq('id_cuenta', idCuenta);
+            if (error) throw error;
+            eliminados.add(idPuesto);
+            if (idCuenta) afectadas.add(idCuenta);
+        }
+
+        for (const linea of lineas) {
+            const payload = {
+                pin: linea.pin || null,
+                vencimiento_usuario: linea.vencimiento_usuario,
+                valor_venta: parseFloat(linea.valor_venta) || 0,
+                es_combo: esCombo,
+                estado: 'activa',
+            };
+            const actual = linea.id_puesto ? porId.get(linea.id_puesto) : null;
+
+            if (actual && actual.id_cuenta === linea.id_cuenta) {
+                const { error } = await supabase
+                    .from('usuario_cuenta')
+                    .update(payload)
+                    .eq('id', linea.id_puesto)
+                    .eq('id_cuenta', linea.id_cuenta);
+                if (error) throw error;
+                afectadas.add(linea.id_cuenta);
+            } else {
+                await asegurarCupo(supabase, linea.id_cuenta, 1);
+                const { error } = await supabase
+                    .from('usuario_cuenta')
+                    .insert([{
+                        id_usuario,
+                        id_cuenta: linea.id_cuenta,
+                        ...payload,
+                        fecha_venta: new Date().toISOString(),
+                    }]);
+                if (error) throw error;
+                afectadas.add(linea.id_cuenta);
+                if (actual) {
+                    await borrarPuesto(actual.id, actual.id_cuenta);
+                }
+            }
+        }
+
+        for (const idPuesto of origen) {
+            if (idsGuardar.has(idPuesto) || eliminados.has(idPuesto)) continue;
+            const actual = porId.get(idPuesto);
+            if (!actual) continue;
+            await borrarPuesto(actual.id, actual.id_cuenta);
+        }
+
+        for (const idCuenta of afectadas) {
+            await actualizarEstadoCuenta(supabase, idCuenta);
+        }
+
+        res.status(200).json({ mensaje: 'Renovación aplicada' });
+    } catch (error) {
+        console.error('Error renovando asignaciones:', error);
+        const status = error.status || 500;
+        res.status(status).json({ error: error.message });
+    }
+};
+
 cuentasController.obtenerVencimientos = async (req, res) => {
     try {
         const { data, error } = await supabase
