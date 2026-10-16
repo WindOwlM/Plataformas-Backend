@@ -189,6 +189,53 @@ cuentasController.obtenerCuentas = async (req, res) => {
     }
 };
 
+cuentasController.actualizarFechaVencimiento = async (req, res) => {
+    try {
+        const { fecha, tipo, id_cuenta, id_puesto, renovaciones = [] } = req.body;
+        if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+            return res.status(400).json({ error: 'La fecha es obligatoria (YYYY-MM-DD).' });
+        }
+
+        if (tipo === 'cuenta') {
+            if (!id_cuenta) return res.status(400).json({ error: 'Falta la cuenta.' });
+            const { error } = await supabase
+                .from('cuenta')
+                .update({ fecha_vencimiento: fecha })
+                .eq('id', id_cuenta);
+            if (error) throw error;
+        } else if (tipo === 'combo') {
+            const filas = Array.isArray(renovaciones) ? renovaciones : [];
+            if (filas.length === 0) {
+                return res.status(400).json({ error: 'No hay puestos para renovar.' });
+            }
+            for (const fila of filas) {
+                if (!fila.id_puesto || !fila.id_cuenta) continue;
+                const { error } = await supabase
+                    .from('usuario_cuenta')
+                    .update({ vencimiento_usuario: fecha })
+                    .eq('id', fila.id_puesto)
+                    .eq('id_cuenta', fila.id_cuenta);
+                if (error) throw error;
+            }
+        } else {
+            if (!id_cuenta || !id_puesto) {
+                return res.status(400).json({ error: 'Falta el puesto o la cuenta.' });
+            }
+            const { error } = await supabase
+                .from('usuario_cuenta')
+                .update({ vencimiento_usuario: fecha })
+                .eq('id', id_puesto)
+                .eq('id_cuenta', id_cuenta);
+            if (error) throw error;
+        }
+
+        res.status(200).json({ mensaje: 'Fecha actualizada' });
+    } catch (error) {
+        console.error('Error actualizando fecha de vencimiento:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 cuentasController.obtenerVencimientos = async (req, res) => {
     try {
         const { data, error } = await supabase

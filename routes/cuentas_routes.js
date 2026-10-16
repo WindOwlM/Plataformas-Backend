@@ -6,6 +6,7 @@ const verificarAdmin = require('../middlewares/auth_middleware.js');
 
 router.post('/crear', verificarAdmin, cuentasController.crearCuenta);
 router.get('/vencimientos', verificarAdmin, cuentasController.obtenerVencimientos);
+router.patch('/vencimientos/fecha', verificarAdmin, cuentasController.actualizarFechaVencimiento);
 router.get('/', verificarAdmin, cuentasController.obtenerCuentas);
 router.get('/:id/contrasena', verificarAdmin, cuentasController.obtenerContrasena);
 router.post('/:id/puestos', verificarAdmin, cuentasController.crearPuesto);
