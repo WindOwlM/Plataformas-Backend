@@ -17,9 +17,33 @@ clientesController.crearCliente = async (req, res) => {
     }
 };
 
+const CLIENTES_SELECT = `
+    id,
+    nombre,
+    numero_telefono,
+    created_at,
+    updated_at,
+    usuario_cuenta (
+        id,
+        pin,
+        vencimiento_usuario,
+        valor_venta,
+        es_combo,
+        cuenta (
+            id,
+            correo,
+            fecha_vencimiento,
+            plataforma ( nombre_plat )
+        )
+    )
+`;
+
 clientesController.obtenerClientes = async (req, res) => {
     try {
-        const { data, error } = await supabase.from('usuario').select('*');
+        const { data, error } = await supabase
+            .from('usuario')
+            .select(CLIENTES_SELECT)
+            .order('nombre', { ascending: true });
         if (error) throw error;
         res.status(200).json(data);
     } catch (error) {
