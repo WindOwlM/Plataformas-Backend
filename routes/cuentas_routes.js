@@ -13,6 +13,7 @@ router.get('/:id/contrasena', verificarAdmin, cuentasController.obtenerContrasen
 router.post('/:id/puestos', verificarAdmin, cuentasController.crearPuesto);
 router.patch('/:id/puestos/:puestoId', verificarAdmin, cuentasController.actualizarPuesto);
 router.post('/:id/puestos/:puestoId/ubicar', verificarAdmin, porUbicarController.moverDesdeCuenta);
+router.post('/:id/puestos/:puestoId/reubicar', verificarAdmin, cuentasController.reubicarPuesto);
 router.delete('/:id/puestos/:puestoId', verificarAdmin, cuentasController.eliminarPuesto);
 router.patch('/:id', verificarAdmin, cuentasController.actualizarCuenta);
 router.delete('/:id', verificarAdmin, cuentasController.eliminarCuenta);

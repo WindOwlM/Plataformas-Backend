@@ -628,6 +628,29 @@ cuentasController.eliminarPuesto = async (req, res) => {
     try {
         const { id, puestoId } = req.params;
 
+        const { data: puesto, error: puestoError } = await supabase
+            .from('usuario_cuenta')
+            .select('id, estado')
+            .eq('id', puestoId)
+            .eq('id_cuenta', id)
+            .single();
+
+        if (puestoError || !puesto) {
+            return res.status(404).json({ error: 'Puesto no encontrado' });
+        }
+
+        const yaCortado = String(puesto.estado || '').toLowerCase() === 'cortado';
+        if (!yaCortado) {
+            const { error } = await supabase
+                .from('usuario_cuenta')
+                .update({ estado: 'cortado' })
+                .eq('id', puestoId)
+                .eq('id_cuenta', id);
+            if (error) throw error;
+            await actualizarEstadoCuenta(supabase, id);
+            return res.status(200).json({ mensaje: 'Quedó como recordatorio para borrar del perfil' });
+        }
+
         const { error } = await supabase
             .from('usuario_cuenta')
             .delete()
@@ -642,6 +665,88 @@ cuentasController.eliminarPuesto = async (req, res) => {
     } catch (error) {
         console.error('Error eliminando puesto:', error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+cuentasController.reubicarPuesto = async (req, res) => {
+    try {
+        const { id, puestoId } = req.params;
+        const { id_cuenta } = req.body;
+
+        if (!id_cuenta) {
+            return res.status(400).json({ error: 'Debes elegir la cuenta destino.' });
+        }
+        if (id_cuenta === id) {
+            return res.status(400).json({ error: 'Elige una cuenta distinta a la actual.' });
+        }
+
+        const { data: puesto, error: puestoError } = await supabase
+            .from('usuario_cuenta')
+            .select('id, id_cuenta, id_usuario, pin, vencimiento_usuario, es_combo, valor_venta, estado')
+            .eq('id', puestoId)
+            .eq('id_cuenta', id)
+            .single();
+
+        if (puestoError || !puesto) {
+            return res.status(404).json({ error: 'El cliente no está en esta cuenta.' });
+        }
+        if (String(puesto.estado || '').toLowerCase() === 'cortado') {
+            return res.status(400).json({ error: 'Este registro es solo un recordatorio. Bórralo de esta cuenta.' });
+        }
+
+        const { data: origen, error: origenError } = await supabase
+            .from('cuenta')
+            .select('id, id_plataforma')
+            .eq('id', id)
+            .single();
+        if (origenError || !origen) {
+            return res.status(404).json({ error: 'Cuenta de origen no encontrada.' });
+        }
+
+        const { data: destino, error: destinoError } = await supabase
+            .from('cuenta')
+            .select('id, id_plataforma, correo')
+            .eq('id', id_cuenta)
+            .single();
+        if (destinoError || !destino) {
+            return res.status(404).json({ error: 'Cuenta destino no encontrada.' });
+        }
+        if (destino.id_plataforma !== origen.id_plataforma) {
+            return res.status(400).json({ error: 'Solo puedes reubicar a una cuenta de la misma plataforma.' });
+        }
+
+        await asegurarCupo(supabase, id_cuenta, 1);
+
+        const { error: insertError } = await supabase
+            .from('usuario_cuenta')
+            .insert([{
+                id_usuario: puesto.id_usuario,
+                id_cuenta,
+                pin: puesto.pin || null,
+                vencimiento_usuario: puesto.vencimiento_usuario || null,
+                es_combo: !!puesto.es_combo,
+                valor_venta: parseFloat(puesto.valor_venta) || 0,
+                estado: 'activa',
+                fecha_venta: new Date().toISOString(),
+            }]);
+        if (insertError) throw insertError;
+
+        const { error: updateError } = await supabase
+            .from('usuario_cuenta')
+            .update({ estado: 'cortado' })
+            .eq('id', puestoId)
+            .eq('id_cuenta', id);
+
+        if (updateError) throw updateError;
+
+        await actualizarEstadoCuenta(supabase, id);
+        await actualizarEstadoCuenta(supabase, id_cuenta);
+
+        res.status(200).json({ mensaje: 'Cliente reubicado', correo: destino.correo });
+    } catch (error) {
+        console.error('Error reubicando puesto:', error);
+        const status = error.status || 500;
+        res.status(status).json({ error: error.message });
     }
 };
 
