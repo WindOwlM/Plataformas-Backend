@@ -29,6 +29,7 @@ const CLIENTES_SELECT = `
         vencimiento_usuario,
         valor_venta,
         es_combo,
+        estado,
         cuenta (
             id,
             correo,
