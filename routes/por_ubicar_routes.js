@@ -5,6 +5,7 @@ const verificarAdmin = require('../middlewares/auth_middleware.js');
 
 router.get('/', verificarAdmin, porUbicarController.listar);
 router.get('/:id/opciones', verificarAdmin, porUbicarController.opcionesReubicar);
+router.patch('/:id', verificarAdmin, porUbicarController.actualizar);
 router.post('/:id/reubicar', verificarAdmin, porUbicarController.reubicar);
 router.delete('/:id', verificarAdmin, porUbicarController.eliminar);
 

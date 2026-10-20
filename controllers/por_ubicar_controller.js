@@ -182,6 +182,69 @@ porUbicarController.moverDesdeCuenta = async (req, res) => {
     }
 };
 
+porUbicarController.actualizar = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            pin,
+            vencimiento_usuario,
+            es_combo,
+            valor_venta,
+            id_plataforma,
+        } = req.body;
+
+        const { data: actual, error: actualError } = await supabase
+            .from('usuario_por_ubicar')
+            .select('id')
+            .eq('id', id)
+            .single();
+
+        if (actualError || !actual) {
+            return res.status(404).json({ error: 'Registro no encontrado' });
+        }
+
+        const actualizaciones = {};
+        if (pin !== undefined) actualizaciones.pin = pin || null;
+        if (vencimiento_usuario !== undefined) actualizaciones.vencimiento_usuario = vencimiento_usuario || null;
+        if (es_combo !== undefined) actualizaciones.es_combo = !!es_combo;
+        if (valor_venta !== undefined) actualizaciones.valor_venta = parseFloat(valor_venta) || 0;
+        if (id_plataforma !== undefined) actualizaciones.id_plataforma = id_plataforma;
+
+        if (Object.keys(actualizaciones).length === 0) {
+            return res.status(400).json({ error: 'No hay datos para actualizar.' });
+        }
+
+        const { data, error } = await supabase
+            .from('usuario_por_ubicar')
+            .update(actualizaciones)
+            .eq('id', id)
+            .select(`
+                id,
+                id_usuario,
+                id_cuenta_anterior,
+                id_plataforma,
+                pin,
+                vencimiento_usuario,
+                es_combo,
+                valor_venta,
+                created_at,
+                usuario ( nombre, numero_telefono ),
+                plataforma ( nombre_plat ),
+                cuenta:id_cuenta_anterior ( correo, id_plataforma )
+            `)
+            .single();
+
+        if (error) throw error;
+        res.status(200).json({
+            mensaje: 'Registro actualizado',
+            pendiente: { ...data, cuenta: data.cuenta || data.cuenta_anterior || null },
+        });
+    } catch (error) {
+        console.error('Error actualizando por ubicar:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 porUbicarController.reubicar = async (req, res) => {
     try {
         const { id } = req.params;

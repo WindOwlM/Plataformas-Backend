@@ -192,12 +192,19 @@ cuentasController.obtenerCuentas = async (req, res) => {
 
 cuentasController.actualizarFechaVencimiento = async (req, res) => {
     try {
-        const { fecha, tipo, id_cuenta, id_puesto, renovaciones = [] } = req.body;
+        const { fecha, tipo, id_cuenta, id_puesto, id_por_ubicar, renovaciones = [] } = req.body;
         if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
             return res.status(400).json({ error: 'La fecha es obligatoria (YYYY-MM-DD).' });
         }
 
-        if (tipo === 'cuenta') {
+        if (tipo === 'por_ubicar') {
+            if (!id_por_ubicar) return res.status(400).json({ error: 'Falta el registro por ubicar.' });
+            const { error } = await supabase
+                .from('usuario_por_ubicar')
+                .update({ vencimiento_usuario: fecha })
+                .eq('id', id_por_ubicar);
+            if (error) throw error;
+        } else if (tipo === 'cuenta') {
             if (!id_cuenta) return res.status(400).json({ error: 'Falta la cuenta.' });
             const { error } = await supabase
                 .from('cuenta')
@@ -341,13 +348,27 @@ cuentasController.renovarAsignaciones = async (req, res) => {
 
 cuentasController.obtenerVencimientos = async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from('cuenta')
-            .select(VENCIMIENTOS_SELECT);
+        const [cuentasRes, pendientesRes] = await Promise.all([
+            supabase.from('cuenta').select(VENCIMIENTOS_SELECT),
+            supabase.from('usuario_por_ubicar').select(`
+                id,
+                id_usuario,
+                id_cuenta_anterior,
+                id_plataforma,
+                pin,
+                vencimiento_usuario,
+                es_combo,
+                valor_venta,
+                usuario ( nombre, numero_telefono ),
+                plataforma ( nombre_plat ),
+                cuenta:id_cuenta_anterior ( correo )
+            `),
+        ]);
 
-        if (error) throw error;
+        if (cuentasRes.error) throw cuentasRes.error;
+        if (pendientesRes.error) throw pendientesRes.error;
 
-        const { items, counts } = buildVencimientoItems(data || []);
+        const { items, counts } = buildVencimientoItems(cuentasRes.data || [], pendientesRes.data || []);
         const bucket = req.query.bucket;
         const filtrados = bucket ? items.filter((i) => i.bucket === bucket) : items;
 
