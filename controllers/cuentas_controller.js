@@ -211,9 +211,11 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
             }
             for (const fila of filas) {
                 if (!fila.id_puesto || !fila.id_cuenta) continue;
+                const fechaFila = fila.fecha || fecha;
+                if (!fechaFila || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFila)) continue;
                 const { error } = await supabase
                     .from('usuario_cuenta')
-                    .update({ vencimiento_usuario: fecha })
+                    .update({ vencimiento_usuario: fechaFila })
                     .eq('id', fila.id_puesto)
                     .eq('id_cuenta', fila.id_cuenta);
                 if (error) throw error;
