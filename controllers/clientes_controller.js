@@ -28,6 +28,7 @@ const CLIENTES_SELECT = `
         pin,
         vencimiento_usuario,
         valor_venta,
+        notas,
         es_combo,
         estado,
         cuenta (

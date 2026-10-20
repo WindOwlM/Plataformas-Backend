@@ -76,6 +76,7 @@ cuentasController.crearCuenta = async (req, res) => {
                 vencimiento_usuario: p.vencimiento_usuario || null,
                 es_combo: p.es_combo || false,
                 valor_venta: p.valor_venta || 0,
+                notas: p.notas || null,
                 estado: 'activa',
                 fecha_venta: new Date().toISOString()
             }));
@@ -421,6 +422,7 @@ cuentasController.actualizarCuenta = async (req, res) => {
                 vencimiento_usuario: p.vencimiento_usuario || null,
                 es_combo: p.es_combo || false,
                 valor_venta: p.valor_venta || 0,
+                notas: p.notas || null,
                 estado: p.estado || 'activa',
                 fecha_venta: p.fecha_venta || new Date().toISOString()
             }));
@@ -527,6 +529,7 @@ const puestoSelect = `
     vencimiento_usuario,
     es_combo,
     valor_venta,
+    notas,
     estado,
     fecha_venta,
     usuario ( nombre, numero_telefono )
@@ -541,6 +544,7 @@ cuentasController.crearPuesto = async (req, res) => {
             vencimiento_usuario,
             es_combo = false,
             valor_venta = 0,
+            notas,
         } = req.body;
 
         if (!id_usuario) {
@@ -568,6 +572,7 @@ cuentasController.crearPuesto = async (req, res) => {
                 vencimiento_usuario: vencimiento_usuario || null,
                 es_combo: !!es_combo,
                 valor_venta: parseFloat(valor_venta) || 0,
+                notas: notas || null,
                 estado: 'activa',
                 fecha_venta: new Date().toISOString(),
             }])
@@ -595,6 +600,7 @@ cuentasController.actualizarPuesto = async (req, res) => {
             vencimiento_usuario,
             es_combo,
             valor_venta,
+            notas,
             estado,
         } = req.body;
 
@@ -604,6 +610,7 @@ cuentasController.actualizarPuesto = async (req, res) => {
         if (vencimiento_usuario !== undefined) actualizaciones.vencimiento_usuario = vencimiento_usuario || null;
         if (es_combo !== undefined) actualizaciones.es_combo = !!es_combo;
         if (valor_venta !== undefined) actualizaciones.valor_venta = parseFloat(valor_venta) || 0;
+        if (notas !== undefined) actualizaciones.notas = notas || null;
         if (estado !== undefined) actualizaciones.estado = estado;
 
         const { data: puesto, error } = await supabase
@@ -682,7 +689,7 @@ cuentasController.reubicarPuesto = async (req, res) => {
 
         const { data: puesto, error: puestoError } = await supabase
             .from('usuario_cuenta')
-            .select('id, id_cuenta, id_usuario, pin, vencimiento_usuario, es_combo, valor_venta, estado')
+            .select('id, id_cuenta, id_usuario, pin, vencimiento_usuario, es_combo, valor_venta, notas, estado')
             .eq('id', puestoId)
             .eq('id_cuenta', id)
             .single();
@@ -726,6 +733,7 @@ cuentasController.reubicarPuesto = async (req, res) => {
                 vencimiento_usuario: puesto.vencimiento_usuario || null,
                 es_combo: !!puesto.es_combo,
                 valor_venta: parseFloat(puesto.valor_venta) || 0,
+                notas: puesto.notas || null,
                 estado: 'activa',
                 fecha_venta: new Date().toISOString(),
             }]);
