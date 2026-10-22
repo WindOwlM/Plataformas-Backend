@@ -216,16 +216,22 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
             if (filas.length === 0) {
                 return res.status(400).json({ error: 'No hay puestos para renovar.' });
             }
+            let actualizadas = 0;
             for (const fila of filas) {
                 if (!fila.id_puesto || !fila.id_cuenta) continue;
                 const fechaFila = fila.fecha || fecha;
                 if (!fechaFila || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFila)) continue;
-                const { error } = await supabase
+                const { error, data } = await supabase
                     .from('usuario_cuenta')
                     .update({ vencimiento_usuario: fechaFila })
                     .eq('id', fila.id_puesto)
-                    .eq('id_cuenta', fila.id_cuenta);
+                    .eq('id_cuenta', fila.id_cuenta)
+                    .select('id');
                 if (error) throw error;
+                if (data?.length) actualizadas += 1;
+            }
+            if (actualizadas === 0) {
+                return res.status(400).json({ error: 'No se pudo actualizar ninguna cuenta.' });
             }
         } else {
             if (!id_cuenta || !id_puesto) {
