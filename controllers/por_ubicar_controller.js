@@ -272,7 +272,7 @@ porUbicarController.reubicar = async (req, res) => {
 
         const { data: cuenta, error: cuentaError } = await supabase
             .from('cuenta')
-            .select('id, id_plataforma')
+            .select('id, id_plataforma, correo')
             .eq('id', id_cuenta)
             .single();
 
@@ -315,7 +315,15 @@ porUbicarController.reubicar = async (req, res) => {
 
         await actualizarEstadoCuenta(supabase, id_cuenta);
 
-        res.status(200).json({ mensaje: 'Cliente reubicado', puesto });
+        res.status(200).json({
+            mensaje: 'Cliente reubicado',
+            puesto,
+            cuenta: {
+                id: cuenta.id,
+                id_plataforma: cuenta.id_plataforma,
+                correo: cuenta.correo,
+            },
+        });
     } catch (error) {
         console.error('Error reubicando:', error);
         const status = error.status || 500;

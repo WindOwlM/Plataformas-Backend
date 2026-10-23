@@ -1,5 +1,12 @@
 const supabase = require('../config/supabase');
 
+function normalizarCelulares(value) {
+    const lista = Array.isArray(value)
+        ? value
+        : String(value || '').split(/[\n,;|]/);
+    return [...new Set(lista.map((n) => String(n || '').trim()).filter(Boolean))];
+}
+
 const catalogosController = {};
 
 // --- PLATAFORMAS ---
@@ -34,10 +41,17 @@ catalogosController.obtenerPlataformas = async (req, res) => {
 // --- PROVEEDORES ---
 catalogosController.crearProveedor = async (req, res) => {
     try {
-        const { nombre_prov } = req.body;
-        const { data, error } = await supabase.from('proveedor').insert([{ nombre_prov }]).select();
+        const { nombre_prov, celulares } = req.body;
+        const numeros = normalizarCelulares(celulares);
+        let { data, error } = await supabase
+            .from('proveedor')
+            .insert([{ nombre_prov, celulares: numeros }])
+            .select();
+        if (error) {
+            ({ data, error } = await supabase.from('proveedor').insert([{ nombre_prov }]).select());
+        }
         if (error) throw error;
-        res.status(201).json(data[0]);
+        res.status(201).json({ ...data[0], celulares: data[0].celulares || numeros });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -88,18 +102,36 @@ catalogosController.actualizarPlataforma = async (req, res) => {
 catalogosController.actualizarProveedor = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nombre_prov } = req.body;
-        
-        const { data, error } = await supabase
+        const { nombre_prov, celulares } = req.body;
+        const actualizaciones = {};
+        if (nombre_prov !== undefined) actualizaciones.nombre_prov = nombre_prov;
+        if (celulares !== undefined) actualizaciones.celulares = normalizarCelulares(celulares);
+
+        let { data, error } = await supabase
             .from('proveedor')
-            .update({ nombre_prov })
+            .update(actualizaciones)
             .eq('id', id)
             .select();
 
+        if (error && actualizaciones.celulares !== undefined) {
+            const { celulares: _omit, ...resto } = actualizaciones;
+            ({ data, error } = await supabase
+                .from('proveedor')
+                .update(resto)
+                .eq('id', id)
+                .select());
+        }
+
         if (error) throw error;
         if (data.length === 0) return res.status(404).json({ error: 'Proveedor no encontrado' });
-        
-        res.status(200).json({ mensaje: 'Proveedor actualizado', proveedor: data[0] });
+
+        res.status(200).json({
+            mensaje: 'Proveedor actualizado',
+            proveedor: {
+                ...data[0],
+                celulares: data[0].celulares || actualizaciones.celulares || [],
+            },
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
