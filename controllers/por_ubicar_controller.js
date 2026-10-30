@@ -93,9 +93,9 @@ porUbicarController.opcionesReubicar = async (req, res) => {
         const { data: cuentas, error: cuentasError } = await supabase
             .from('cuenta')
             .select(`
-                id, correo, id_plataforma, estado,
+                id, correo, id_plataforma, estado, fecha_vencimiento,
                 plataforma ( * ),
-                usuario_cuenta ( id )
+                usuario_cuenta ( id, estado, vencimiento_usuario )
             `)
             .in('id_plataforma', permitidas.length ? permitidas : ['00000000-0000-0000-0000-000000000000'])
             .order('correo');
