@@ -15,6 +15,7 @@ router.patch('/:id/puestos/:puestoId', verificarAdmin, cuentasController.actuali
 router.post('/:id/puestos/:puestoId/ubicar', verificarAdmin, porUbicarController.moverDesdeCuenta);
 router.post('/:id/puestos/:puestoId/reubicar', verificarAdmin, cuentasController.reubicarPuesto);
 router.delete('/:id/puestos/:puestoId', verificarAdmin, cuentasController.eliminarPuesto);
+router.patch('/:id/estado', verificarAdmin, cuentasController.cambiarEstado);
 router.patch('/:id', verificarAdmin, cuentasController.actualizarCuenta);
 router.delete('/:id', verificarAdmin, cuentasController.eliminarCuenta);
 

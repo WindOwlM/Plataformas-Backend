@@ -1,6 +1,7 @@
 const supabase = require('../config/supabase');
 const {
     actualizarEstadoCuenta,
+    setCuentaInhabilitada,
     asegurarCupo,
     maxPuestosPlataforma,
     decorarCuenta,
@@ -506,6 +507,40 @@ cuentasController.actualizarCuenta = async (req, res) => {
         });
     } catch (error) {
         console.error("Error actualizando cuenta:", error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+cuentasController.cambiarEstado = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const inhabilitada = req.body?.inhabilitada === true
+            || req.body?.estado === 'inhabilitada';
+
+        const { data: actual, error: actualError } = await supabase
+            .from('cuenta')
+            .select('id')
+            .eq('id', id)
+            .single();
+        if (actualError || !actual) {
+            return res.status(404).json({ error: 'Cuenta no encontrada' });
+        }
+
+        await setCuentaInhabilitada(supabase, id, inhabilitada);
+
+        const { data, error } = await supabase
+            .from('cuenta')
+            .select(CUENTA_PUBLIC_SELECT)
+            .eq('id', id)
+            .single();
+        if (error) throw error;
+
+        res.status(200).json({
+            mensaje: inhabilitada ? 'Cuenta inhabilitada' : 'Cuenta habilitada',
+            cuenta: decorarCuenta(data),
+        });
+    } catch (error) {
+        console.error('Error cambiando estado de cuenta:', error);
         res.status(500).json({ error: error.message });
     }
 };
