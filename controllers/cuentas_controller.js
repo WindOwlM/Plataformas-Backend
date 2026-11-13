@@ -436,26 +436,30 @@ cuentasController.actualizarCuenta = async (req, res) => {
 
         const existingPuestosResult = await supabase
             .from('usuario_cuenta')
-            .select('id')
+            .select('id, estado, fecha_venta')
             .eq('id_cuenta', cuenta.id);
 
         if (existingPuestosResult.error) throw existingPuestosResult.error;
 
         const existingPuestosIds = (existingPuestosResult.data || []).map((p) => p.id);
+        const existingPorId = new Map((existingPuestosResult.data || []).map((p) => [p.id, p]));
         const puestosParaProcesar = puestosPayload
             .filter(p => p.id_usuario || p.id)
-            .map(p => ({
-                ...(p.id ? { id: p.id } : {}),
-                id_usuario: p.id_usuario,
-                id_cuenta: cuenta.id,
-                pin: p.pin || null,
-                vencimiento_usuario: p.vencimiento_usuario || null,
-                es_combo: p.es_combo || false,
-                valor_venta: p.valor_venta || 0,
-                notas: p.notas || null,
-                estado: p.estado || 'activa',
-                fecha_venta: p.fecha_venta || new Date().toISOString()
-            }));
+            .map(p => {
+                const actual = p.id ? existingPorId.get(p.id) : null;
+                return {
+                    ...(p.id ? { id: p.id } : {}),
+                    id_usuario: p.id_usuario,
+                    id_cuenta: cuenta.id,
+                    pin: p.pin || null,
+                    vencimiento_usuario: p.vencimiento_usuario || null,
+                    es_combo: p.es_combo || false,
+                    valor_venta: p.valor_venta || 0,
+                    notas: p.notas || null,
+                    estado: p.estado || actual?.estado || 'activa',
+                    fecha_venta: actual?.fecha_venta || p.fecha_venta || new Date().toISOString(),
+                };
+            });
 
         const puestosConId = puestosParaProcesar.filter(p => p.id);
         const puestosSinId = puestosParaProcesar.filter(p => !p.id);
