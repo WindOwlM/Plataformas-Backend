@@ -219,9 +219,19 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
             }
             let actualizadas = 0;
             for (const fila of filas) {
-                if (!fila.id_puesto || !fila.id_cuenta) continue;
                 const fechaFila = fila.fecha || fecha;
                 if (!fechaFila || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFila)) continue;
+                if (fila.id_por_ubicar) {
+                    const { error, data } = await supabase
+                        .from('usuario_por_ubicar')
+                        .update({ vencimiento_usuario: fechaFila })
+                        .eq('id', fila.id_por_ubicar)
+                        .select('id');
+                    if (error) throw error;
+                    if (data?.length) actualizadas += 1;
+                    continue;
+                }
+                if (!fila.id_puesto || !fila.id_cuenta) continue;
                 const { error, data } = await supabase
                     .from('usuario_cuenta')
                     .update({ vencimiento_usuario: fechaFila })
@@ -265,7 +275,7 @@ cuentasController.renovarAsignaciones = async (req, res) => {
         }
 
         for (const linea of lineas) {
-            if (!linea.id_cuenta) {
+            if (!linea.id_cuenta && !linea.id_por_ubicar) {
                 return res.status(400).json({ error: 'Cada plataforma debe tener una cuenta con cupo.' });
             }
             if (!linea.vencimiento_usuario || !/^\d{4}-\d{2}-\d{2}$/.test(linea.vencimiento_usuario)) {
@@ -306,6 +316,22 @@ cuentasController.renovarAsignaciones = async (req, res) => {
                 es_combo: esCombo,
                 estado: 'activa',
             };
+
+            // Sigue por ubicar (sin cuenta elegida): solo se renuevan sus datos.
+            if (linea.id_por_ubicar && !linea.id_cuenta) {
+                const { error } = await supabase
+                    .from('usuario_por_ubicar')
+                    .update({
+                        pin: payload.pin,
+                        vencimiento_usuario: payload.vencimiento_usuario,
+                        valor_venta: payload.valor_venta,
+                        es_combo: esCombo,
+                    })
+                    .eq('id', linea.id_por_ubicar)
+                    .eq('id_usuario', id_usuario);
+                if (error) throw error;
+                continue;
+            }
             const actual = linea.id_puesto ? porId.get(linea.id_puesto) : null;
 
             if (actual && actual.id_cuenta === linea.id_cuenta) {
@@ -330,6 +356,14 @@ cuentasController.renovarAsignaciones = async (req, res) => {
                 afectadas.add(linea.id_cuenta);
                 if (actual) {
                     await borrarPuesto(actual.id, actual.id_cuenta);
+                }
+                if (linea.id_por_ubicar) {
+                    const { error: pendienteError } = await supabase
+                        .from('usuario_por_ubicar')
+                        .delete()
+                        .eq('id', linea.id_por_ubicar)
+                        .eq('id_usuario', id_usuario);
+                    if (pendienteError) throw pendienteError;
                 }
             }
         }
