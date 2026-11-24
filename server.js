@@ -2,6 +2,9 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const supabase = require('./config/supabase');
+const { registrarErroresHttp, manejadorErrores, registrarErroresProceso } = require('./lib/logger');
+
+registrarErroresProceso();
 
 // Importar todas las rutas
 const cuentasRoutes = require('./routes/cuentas_routes.js');
@@ -40,6 +43,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json()); 
+app.use(registrarErroresHttp);
 
 // Registrar las Rutas
 app.use('/api/cuentas', cuentasRoutes);
@@ -51,6 +55,8 @@ app.use('/api/por-ubicar', porUbicarRoutes);
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });
+
+app.use(manejadorErrores);
 
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0"

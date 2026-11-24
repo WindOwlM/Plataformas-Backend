@@ -3,3 +3,6 @@ node_modules/
 .env
 token.json
 tokens.json
+logs/
+logs/*.log
+logs/*.log.*

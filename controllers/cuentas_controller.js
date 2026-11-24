@@ -87,6 +87,8 @@ cuentasController.crearCuenta = async (req, res) => {
 
             if (puestosError) {
                 console.error('Error creando puestos:', puestosError);
+                // Deshacer la cuenta para no dejarla creada sin sus puestos.
+                await supabase.from('cuenta').delete().eq('id', cuenta.id);
                 throw puestosError;
             }
         }
@@ -289,6 +291,20 @@ cuentasController.renovarAsignaciones = async (req, res) => {
         if (actualesError) throw actualesError;
 
         const porId = new Map((actuales || []).map((fila) => [fila.id, fila]));
+
+        // Se puede elegir la misma cuenta en varias líneas: revisar que haya cupo
+        // para todos los puestos nuevos ANTES de guardar algo.
+        const nuevosPorCuenta = new Map();
+        for (const linea of lineas) {
+            if (!linea.id_cuenta) continue;
+            const actual = linea.id_puesto ? porId.get(linea.id_puesto) : null;
+            if (actual && actual.id_cuenta === linea.id_cuenta) continue;
+            nuevosPorCuenta.set(linea.id_cuenta, (nuevosPorCuenta.get(linea.id_cuenta) || 0) + 1);
+        }
+        for (const [idCuenta, cantidad] of nuevosPorCuenta) {
+            await asegurarCupo(supabase, idCuenta, cantidad);
+        }
+
         const origen = new Set((puestos_origen || []).filter(Boolean));
         const idsGuardar = new Set(lineas.map((linea) => linea.id_puesto).filter(Boolean));
         const esCombo = lineas.length > 1;
@@ -734,10 +750,12 @@ cuentasController.actualizarPuesto = async (req, res) => {
             .eq('id', puestoId)
             .eq('id_cuenta', id)
             .select(puestoSelect)
-            .single();
+            .maybeSingle();
 
         if (error) throw error;
         if (!puesto) return res.status(404).json({ error: 'Puesto no encontrado' });
+
+        await actualizarEstadoCuenta(supabase, id);
 
         res.status(200).json({ mensaje: 'Puesto actualizado', puesto });
     } catch (error) {
