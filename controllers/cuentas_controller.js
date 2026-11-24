@@ -5,6 +5,8 @@ const {
     asegurarCupo,
     maxPuestosPlataforma,
     decorarCuenta,
+    esCuentaInhabilitada,
+    esPuestoQueOcupa,
 } = require('../lib/cuentaEstado');
 const { CUENTA_PUBLIC_SELECT, VENCIMIENTOS_SELECT } = require('../lib/cuentaSelect');
 const { buildVencimientoItems } = require('../lib/vencimientos');
@@ -28,10 +30,6 @@ cuentasController.crearCuenta = async (req, res) => {
 
         const password = contrasena || contrasena_plana;
 
-        if (!fecha_vencimiento) {
-            return res.status(400).json({ error: 'La fecha de vencimiento es obligatoria.' });
-        }
-
         if (!password) {
             return res.status(400).json({ error: 'La contraseña es obligatoria.' });
         }
@@ -39,7 +37,8 @@ cuentasController.crearCuenta = async (req, res) => {
         const puestosValidos = puestos.filter(p => p.id_usuario);
         const maxPuestos = await maxPuestosPlataforma(supabase, id_plataforma);
 
-        if (puestosValidos.length > maxPuestos) {
+        const ocupanCupo = puestosValidos.filter((p) => esPuestoQueOcupa({ ...p, estado: 'activa' })).length;
+        if (ocupanCupo > maxPuestos) {
             return res.status(400).json({
                 error: `Esta plataforma admite máximo ${maxPuestos} puestos.`,
             });
@@ -54,7 +53,7 @@ cuentasController.crearCuenta = async (req, res) => {
                 correo,
                 contrasena: password,
                 precio_costo,
-                fecha_vencimiento,
+                fecha_vencimiento: fecha_vencimiento || null,
                 fecha_agregado: new Date().toISOString().split('T')[0],
                 notas: notas || null,
                 estado: 'disponible'
@@ -435,13 +434,69 @@ cuentasController.actualizarCuenta = async (req, res) => {
             puestos = []
         } = req.body;
 
+        const { data: cuentaActual, error: cuentaActualError } = await supabase
+            .from('cuenta')
+            .select('id, id_plataforma, estado')
+            .eq('id', id)
+            .maybeSingle();
+        if (cuentaActualError) throw cuentaActualError;
+        if (!cuentaActual) return res.status(404).json({ error: 'Cuenta no encontrada' });
+
+        const existingPuestosResult = await supabase
+            .from('usuario_cuenta')
+            .select('id, estado, fecha_venta')
+            .eq('id_cuenta', id);
+        if (existingPuestosResult.error) throw existingPuestosResult.error;
+
+        const existingPorId = new Map((existingPuestosResult.data || []).map((p) => [p.id, p]));
+
+        // Un puesto sin cliente se trata como eliminado (no se guarda vacío).
+        const puestosParaProcesar = (Array.isArray(puestos) ? puestos : [])
+            .filter((p) => p.id_usuario)
+            .map((p) => {
+                const actual = p.id ? existingPorId.get(p.id) : null;
+                return {
+                    ...(actual ? { id: p.id } : {}),
+                    id_usuario: p.id_usuario,
+                    id_cuenta: id,
+                    pin: p.pin || null,
+                    vencimiento_usuario: p.vencimiento_usuario || null,
+                    es_combo: p.es_combo || false,
+                    valor_venta: p.valor_venta || 0,
+                    notas: p.notas || null,
+                    estado: p.estado || actual?.estado || 'activa',
+                    fecha_venta: actual?.fecha_venta || p.fecha_venta || new Date().toISOString(),
+                };
+            });
+
+        // Validar todo ANTES de guardar cambios.
+        const maxPuestos = await maxPuestosPlataforma(
+            supabase,
+            id_plataforma !== undefined ? id_plataforma : cuentaActual.id_plataforma
+        );
+        const ocupanCupo = puestosParaProcesar.filter(esPuestoQueOcupa).length;
+        if (ocupanCupo > maxPuestos) {
+            return res.status(400).json({
+                error: `Esta plataforma admite máximo ${maxPuestos} puestos activos.`,
+            });
+        }
+
+        const puestosConId = puestosParaProcesar.filter(p => p.id);
+        const puestosSinId = puestosParaProcesar.filter(p => !p.id);
+
+        if (puestosSinId.length > 0 && esCuentaInhabilitada(cuentaActual.estado)) {
+            return res.status(400).json({
+                error: 'Esta cuenta está inhabilitada. Habilítala antes de agregar clientes.',
+            });
+        }
+
         let actualizaciones = {};
 
         if (correo !== undefined) actualizaciones.correo = correo;
         if (id_plataforma !== undefined) actualizaciones.id_plataforma = id_plataforma;
         if (id_proveedor !== undefined) actualizaciones.id_proveedor = id_proveedor;
         if (precio_costo !== undefined) actualizaciones.precio_costo = precio_costo;
-        if (fecha_vencimiento !== undefined) actualizaciones.fecha_vencimiento = fecha_vencimiento;
+        if (fecha_vencimiento !== undefined) actualizaciones.fecha_vencimiento = fecha_vencimiento || null;
         if (notas !== undefined) actualizaciones.notas = notas;
         if (contrasena) actualizaciones.contrasena = contrasena;
 
@@ -455,50 +510,8 @@ cuentasController.actualizarCuenta = async (req, res) => {
         if (data.length === 0) return res.status(404).json({ error: 'Cuenta no encontrada' });
 
         const cuenta = data[0];
-        const puestosPayload = Array.isArray(puestos) ? puestos : [];
-        const ocupadosFinal = puestosPayload.filter((p) => p.id_usuario).length;
-        const maxPuestos = await maxPuestosPlataforma(
-            supabase,
-            id_plataforma !== undefined ? id_plataforma : cuenta.id_plataforma
-        );
-
-        if (ocupadosFinal > maxPuestos) {
-            return res.status(400).json({
-                error: `Esta plataforma admite máximo ${maxPuestos} puestos.`,
-            });
-        }
-
-        const existingPuestosResult = await supabase
-            .from('usuario_cuenta')
-            .select('id, estado, fecha_venta')
-            .eq('id_cuenta', cuenta.id);
-
-        if (existingPuestosResult.error) throw existingPuestosResult.error;
-
-        const existingPuestosIds = (existingPuestosResult.data || []).map((p) => p.id);
-        const existingPorId = new Map((existingPuestosResult.data || []).map((p) => [p.id, p]));
-        const puestosParaProcesar = puestosPayload
-            .filter(p => p.id_usuario || p.id)
-            .map(p => {
-                const actual = p.id ? existingPorId.get(p.id) : null;
-                return {
-                    ...(p.id ? { id: p.id } : {}),
-                    id_usuario: p.id_usuario,
-                    id_cuenta: cuenta.id,
-                    pin: p.pin || null,
-                    vencimiento_usuario: p.vencimiento_usuario || null,
-                    es_combo: p.es_combo || false,
-                    valor_venta: p.valor_venta || 0,
-                    notas: p.notas || null,
-                    estado: p.estado || actual?.estado || 'activa',
-                    fecha_venta: actual?.fecha_venta || p.fecha_venta || new Date().toISOString(),
-                };
-            });
-
-        const puestosConId = puestosParaProcesar.filter(p => p.id);
-        const puestosSinId = puestosParaProcesar.filter(p => !p.id);
-        const receivedIds = puestosConId.map((p) => p.id);
-        const idsParaEliminar = existingPuestosIds.filter((id) => !receivedIds.includes(id));
+        const receivedIds = new Set(puestosConId.map((p) => p.id));
+        const idsParaEliminar = [...existingPorId.keys()].filter((pid) => !receivedIds.has(pid));
 
         if (idsParaEliminar.length > 0) {
             const { error: errorEliminarPuestos } = await supabase
