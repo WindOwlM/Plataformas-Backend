@@ -5,6 +5,7 @@ const { traducirError } = require('../lib/mensajesError');
 const {
     errorHttp,
     normalizarCorreo,
+    buzonDe,
     proveedorSugerido,
     firmarState,
     leerState,
@@ -58,10 +59,12 @@ correosController.listarVinculados = async (req, res) => {
         if (error) throw error;
 
         // Para mostrar en qué plataformas se usa cada correo
-        const { data: cuentas } = await supabase.from('cuenta').select('correo, plataforma ( nombre_plat )');
+        const { data: cuentas } = await supabase.from('cuenta').select('correo, plataforma ( nombre_plat ), proveedor ( nombre_prov )');
         const porCorreo = new Map();
         for (const c of cuentas || []) {
-            const k = normalizarCorreo(c.correo);
+            // Las cuentas propias con + cuentan en el buzón sin el +
+            const propia = /^propia/i.test(c.proveedor?.nombre_prov || '');
+            const k = propia ? buzonDe(c.correo) : normalizarCorreo(c.correo);
             const nombre = c.plataforma?.nombre_plat;
             if (!k || !nombre) continue;
             if (!porCorreo.has(k)) porCorreo.set(k, new Set());
@@ -150,12 +153,16 @@ correosController.leer = async (req, res) => {
         const query = String(req.body?.query || '').trim().slice(0, 200);
         const max = Math.min(Math.max(parseInt(req.body?.max, 10) || 5, 1), 20);
 
-        const { data: filaDb, error } = await supabase
+        // Si el correo exacto no está conectado pero es un alias (con +), se usa su buzón
+        const buzon = buzonDe(correo);
+        const candidatos = buzon !== correo ? [correo, buzon] : [correo];
+        const { data: filas, error } = await supabase
             .from(TABLA)
             .select('*')
-            .eq('correo', correo)
-            .maybeSingle();
+            .in('correo', candidatos);
         if (error) throw error;
+        const filaDb = (filas || []).find((f) => f.correo === correo) || (filas || []).find((f) => f.correo === buzon);
+        const alias = filaDb && filaDb.correo !== correo ? correo : null;
         if (!filaDb) {
             const err = errorHttp(404, 'Este correo no está conectado todavía.');
             err.reconectar = true;
@@ -165,14 +172,14 @@ correosController.leer = async (req, res) => {
         let fila = await tokenVigente(filaDb);
         let emails;
         try {
-            emails = await traerCorreos(fila.provider, fila.access_token, query, max);
+            emails = await traerCorreos(fila.provider, fila.access_token, query, max, alias);
         } catch (err) {
             if (err.status !== 401) throw err;
             // El token fue rechazado antes de tiempo: renovamos una vez y reintentamos
             fila = await tokenVigente(fila, true);
-            emails = await traerCorreos(fila.provider, fila.access_token, query, max);
+            emails = await traerCorreos(fila.provider, fila.access_token, query, max, alias);
         }
-        res.status(200).json({ correo, provider: fila.provider, emails });
+        res.status(200).json({ correo, buzon: fila.correo, alias, provider: fila.provider, emails });
     } catch (error) {
         responderError(res, error, 'leyendo correos');
     }
