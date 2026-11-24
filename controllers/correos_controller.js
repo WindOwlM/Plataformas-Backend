@@ -1,5 +1,7 @@
 const supabase = require('../config/supabase');
 const { origenPermitido } = require('../lib/origenes');
+const { logError } = require('../lib/logger');
+const { traducirError } = require('../lib/mensajesError');
 const {
     errorHttp,
     normalizarCorreo,
@@ -83,7 +85,8 @@ correosController.conectar = async (req, res) => {
         const origen = req.headers.origin;
         if (!origen || !origenPermitido(origen)) throw errorHttp(400, 'Origen no permitido.');
         const ruta = String(req.body?.ruta || '/cuentas');
-        const rutaSegura = ruta.startsWith('/') && !ruta.startsWith('//') ? ruta : '/cuentas';
+        // Solo rutas internas de la app (evita que "/\\otro-sitio.com" mande a otra página)
+        const rutaSegura = /^\/(?![\/\\])[^\\]*$/.test(ruta) ? ruta : '/cuentas';
 
         const state = firmarState({ p: provider, c: correo, o: origen, r: rutaSegura });
         res.status(200).json({ url: urlAutorizacion(provider, state, correo) });
@@ -135,9 +138,7 @@ correosController.callback = async (req, res) => {
         return volver(params);
     } catch (error) {
         // La persona solo ve el mensaje sencillo; lo técnico va al log
-        const { logError } = require('../lib/logger');
         logError(`Conectar correo (${req.params.provider})`, `${error.message}${error.detalle ? ` | detalle: ${error.detalle}` : ''}`);
-        const { traducirError } = require('../lib/mensajesError');
         return volver({ correo_error: traducirError(error.status || 500, error.message).error });
     }
 };
