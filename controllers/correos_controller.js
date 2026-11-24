@@ -18,8 +18,8 @@ const correosController = {};
 const TABLA = 'correo_vinculado';
 
 function responderError(res, error, contexto) {
-    console.error(`Error ${contexto}:`, error.message || error);
-    res.status(error.status || 500).json({ error: error.message, reconectar: !!error.reconectar });
+    console.error(`Error ${contexto}:`, error.message || error, error.detalle || '');
+    res.status(error.status || 500).json({ error: error.message, detalle: error.detalle, reconectar: !!error.reconectar });
 }
 
 async function guardarTokens(fila, tokens) {
@@ -104,17 +104,19 @@ correosController.callback = async (req, res) => {
     try {
         datos = leerState(req.query.state);
         const provider = req.params.provider;
-        if (provider !== datos.p) throw errorHttp(400, 'Solicitud inválida.');
+        const nombre = provider === 'google' ? 'Google' : 'Microsoft';
+        if (provider !== datos.p) throw errorHttp(400, 'El enlace para conectar el correo no es válido. Vuelve a intentarlo desde la app.', 'provider no coincide con el state');
         if (req.query.error) {
             throw errorHttp(400, req.query.error === 'access_denied'
-                ? 'Cancelaste el permiso.'
-                : String(req.query.error_description || req.query.error));
+                ? 'Cancelaste el permiso, así que el correo no se conectó.'
+                : `${nombre} no permitió conectar el correo. Inténtalo de nuevo.`,
+            `${req.query.error}: ${req.query.error_description || ''}`);
         }
-        if (!req.query.code) throw errorHttp(400, 'No llegó el código de autorización.');
+        if (!req.query.code) throw errorHttp(400, `${nombre} no devolvió el permiso. Inténtalo de nuevo.`, 'callback sin code');
 
         const tokens = await intercambiarCodigo(provider, String(req.query.code));
         const correo = correoDeIdToken(tokens.id_token) || datos.c;
-        if (!correo) throw errorHttp(400, 'No se pudo saber qué correo conectaste.');
+        if (!correo) throw errorHttp(400, 'No se pudo saber qué correo conectaste. Inténtalo de nuevo.', 'id_token sin email');
 
         const fila = {
             correo,
@@ -132,8 +134,11 @@ correosController.callback = async (req, res) => {
         if (datos.c && datos.c !== correo) params.correo_pedido = datos.c;
         return volver(params);
     } catch (error) {
-        console.error('Error conectando correo:', error.message || error);
-        return volver({ correo_error: error.message || 'No se pudo conectar el correo' });
+        // La persona solo ve el mensaje sencillo; lo técnico va al log
+        const { logError } = require('../lib/logger');
+        logError(`Conectar correo (${req.params.provider})`, `${error.message}${error.detalle ? ` | detalle: ${error.detalle}` : ''}`);
+        const { traducirError } = require('../lib/mensajesError');
+        return volver({ correo_error: traducirError(error.status || 500, error.message).error });
     }
 };
 

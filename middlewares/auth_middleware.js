@@ -6,7 +6,7 @@ const verificarAdmin = async (req, res, next) => {
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'Acceso denegado. Falta el token.' });
+            return res.status(401).json({ error: 'Tu sesión no es válida. Vuelve a iniciar sesión.' });
         }
 
         const token = authHeader.split(' ')[1];
@@ -14,7 +14,7 @@ const verificarAdmin = async (req, res, next) => {
         const { data: authData, error: authError } = await supabase.auth.getUser(token);
 
         if (authError || !authData.user) {
-            return res.status(401).json({ error: 'Token inválido o expirado.' });
+            return res.status(401).json({ error: 'Tu sesión venció. Vuelve a iniciar sesión.' });
         }
 
         let adminData = null;
@@ -49,7 +49,7 @@ const verificarAdmin = async (req, res, next) => {
                 details: adminError?.details,
                 hint: adminError?.hint,
             });
-            return res.status(403).json({ error: 'Acceso denegado. No tienes permisos de administrador.' });
+            return res.status(403).json({ error: 'Tu usuario no tiene permiso de administrador para usar la app.' });
         }
 
         req.usuarioAuth = {
@@ -61,7 +61,7 @@ const verificarAdmin = async (req, res, next) => {
         next();
     } catch (error) {
         console.error('Error en middleware de auth:', error);
-        res.status(500).json({ error: 'Error interno del servidor al verificar la identidad.' });
+        res.status(500).json({ error: 'No se pudo verificar tu sesión. Inténtalo de nuevo.', detalle: error.message });
     }
 };
 
