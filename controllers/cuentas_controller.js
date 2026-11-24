@@ -744,6 +744,20 @@ cuentasController.actualizarPuesto = async (req, res) => {
         if (notas !== undefined) actualizaciones.notas = notas || null;
         if (estado !== undefined) actualizaciones.estado = estado;
 
+        // Deshacer recordatorio: vuelve a ocupar puesto, así que revisamos el cupo
+        if (estado !== undefined && String(estado).toLowerCase() !== 'cortado') {
+            const { data: previo } = await supabase
+                .from('usuario_cuenta')
+                .select('id, estado, vencimiento_usuario')
+                .eq('id', puestoId)
+                .eq('id_cuenta', id)
+                .maybeSingle();
+            if (previo && String(previo.estado || '').toLowerCase() === 'cortado') {
+                const vuelveAOcupar = esPuestoQueOcupa({ ...previo, ...actualizaciones });
+                if (vuelveAOcupar) await asegurarCupo(supabase, id, 1);
+            }
+        }
+
         const { data: puesto, error } = await supabase
             .from('usuario_cuenta')
             .update(actualizaciones)
@@ -760,7 +774,7 @@ cuentasController.actualizarPuesto = async (req, res) => {
         res.status(200).json({ mensaje: 'Puesto actualizado', puesto });
     } catch (error) {
         console.error('Error actualizando puesto:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 };
 
@@ -811,7 +825,7 @@ cuentasController.eliminarPuesto = async (req, res) => {
 cuentasController.reubicarPuesto = async (req, res) => {
     try {
         const { id, puestoId } = req.params;
-        const { id_cuenta } = req.body;
+        const { id_cuenta, borrar_origen } = req.body;
 
         if (!id_cuenta) {
             return res.status(400).json({ error: 'Debes elegir la cuenta destino.' });
@@ -822,7 +836,7 @@ cuentasController.reubicarPuesto = async (req, res) => {
 
         const { data: puesto, error: puestoError } = await supabase
             .from('usuario_cuenta')
-            .select('id, id_cuenta, id_usuario, pin, vencimiento_usuario, es_combo, valor_venta, notas, estado')
+            .select('id, id_cuenta, id_usuario, pin, vencimiento_usuario, es_combo, valor_venta, notas, estado, fecha_venta')
             .eq('id', puestoId)
             .eq('id_cuenta', id)
             .single();
@@ -868,15 +882,22 @@ cuentasController.reubicarPuesto = async (req, res) => {
                 valor_venta: parseFloat(puesto.valor_venta) || 0,
                 notas: puesto.notas || null,
                 estado: 'activa',
-                fecha_venta: new Date().toISOString(),
+                fecha_venta: (borrar_origen && puesto.fecha_venta) || new Date().toISOString(),
             }]);
         if (insertError) throw insertError;
 
-        const { error: updateError } = await supabase
-            .from('usuario_cuenta')
-            .update({ estado: 'cortado' })
-            .eq('id', puestoId)
-            .eq('id_cuenta', id);
+        // borrar_origen: se quita de la cuenta vieja; si no, queda como recordatorio
+        const { error: updateError } = borrar_origen
+            ? await supabase
+                .from('usuario_cuenta')
+                .delete()
+                .eq('id', puestoId)
+                .eq('id_cuenta', id)
+            : await supabase
+                .from('usuario_cuenta')
+                .update({ estado: 'cortado' })
+                .eq('id', puestoId)
+                .eq('id_cuenta', id);
 
         if (updateError) throw updateError;
 
