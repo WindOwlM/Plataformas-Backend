@@ -213,6 +213,19 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
                 .update({ fecha_vencimiento: fecha })
                 .eq('id', id_cuenta);
             if (error) throw error;
+        } else if (tipo === 'cuentas') {
+            // Varias cuentas de un mismo proveedor, cada una con su fecha
+            const filas = (Array.isArray(renovaciones) ? renovaciones : [])
+                .filter((f) => f.id_cuenta && /^\d{4}-\d{2}-\d{2}$/.test(f.fecha || fecha));
+            if (filas.length === 0) {
+                return res.status(400).json({ error: 'Elige al menos una cuenta para renovar.' });
+            }
+            const resultados = await Promise.all(filas.map((f) => supabase
+                .from('cuenta')
+                .update({ fecha_vencimiento: f.fecha || fecha })
+                .eq('id', f.id_cuenta)));
+            const fallo = resultados.find((r) => r.error);
+            if (fallo) throw fallo.error;
         } else if (tipo === 'combo') {
             const filas = Array.isArray(renovaciones) ? renovaciones : [];
             if (filas.length === 0) {
