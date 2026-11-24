@@ -89,7 +89,7 @@ correosController.conectar = async (req, res) => {
         if (!origen || !origenPermitido(origen)) throw errorHttp(400, 'Origen no permitido.');
         const ruta = String(req.body?.ruta || '/cuentas');
         // Solo rutas internas de la app (evita que "/\\otro-sitio.com" mande a otra página)
-        const rutaSegura = /^\/(?![\/\\])[^\\]*$/.test(ruta) ? ruta : '/cuentas';
+        const rutaSegura = /^\/(?![/\\])[^\\]*$/.test(ruta) ? ruta : '/cuentas';
 
         const state = firmarState({ p: provider, c: correo, o: origen, r: rutaSegura });
         res.status(200).json({ url: urlAutorizacion(provider, state, correo) });
