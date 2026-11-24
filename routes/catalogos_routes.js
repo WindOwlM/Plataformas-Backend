@@ -9,6 +9,7 @@ router.get('/plataformas', verificarAdmin, catalogosController.obtenerPlataforma
 
 router.post('/proveedores', verificarAdmin, catalogosController.crearProveedor);
 router.get('/proveedores', verificarAdmin, catalogosController.obtenerProveedores);
+router.get('/proveedores/accesos', verificarAdmin, catalogosController.obtenerAccesosProveedores);
 
 router.patch('/plataformas/:id', verificarAdmin, catalogosController.actualizarPlataforma);
 router.patch('/proveedores/:id', verificarAdmin, catalogosController.actualizarProveedor);

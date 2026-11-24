@@ -67,6 +67,19 @@ catalogosController.obtenerProveedores = async (req, res) => {
     }
 };
 
+// Datos de acceso a la tienda de cada proveedor (solo lectura)
+catalogosController.obtenerAccesosProveedores = async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('proveedor_acceso')
+            .select('id_proveedor, url, usuario, contrasena');
+        if (error) throw error;
+        res.status(200).json(data || []);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 catalogosController.actualizarPlataforma = async (req, res) => {
     try {
         const { id } = req.params;
