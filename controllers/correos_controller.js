@@ -162,7 +162,9 @@ correosController.leer = async (req, res) => {
             .in('correo', candidatos);
         if (error) throw error;
         const filaDb = (filas || []).find((f) => f.correo === correo) || (filas || []).find((f) => f.correo === buzon);
-        const alias = filaDb && filaDb.correo !== correo ? correo : null;
+        // Por defecto se ve el buzón completo; solo se filtra por el alias si se pide
+        const esAlias = !!filaDb && filaDb.correo !== correo;
+        const alias = esAlias && req.body?.soloAlias ? correo : null;
         if (!filaDb) {
             const err = errorHttp(404, 'Este correo no está conectado todavía.');
             err.reconectar = true;
@@ -179,7 +181,7 @@ correosController.leer = async (req, res) => {
             fila = await tokenVigente(fila, true);
             emails = await traerCorreos(fila.provider, fila.access_token, query, max, alias);
         }
-        res.status(200).json({ correo, buzon: fila.correo, alias, provider: fila.provider, emails });
+        res.status(200).json({ correo, buzon: fila.correo, esAlias, filtrado: !!alias, provider: fila.provider, emails });
     } catch (error) {
         responderError(res, error, 'leyendo correos');
     }
