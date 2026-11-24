@@ -6,3 +6,4 @@ tokens.json
 logs/
 logs/*.log
 logs/*.log.*
+sql/

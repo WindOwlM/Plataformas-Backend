@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const supabase = require('./config/supabase');
 const { registrarErroresHttp, manejadorErrores, registrarErroresProceso } = require('./lib/logger');
+const { origenPermitido } = require('./lib/origenes');
 
 registrarErroresProceso();
 
@@ -12,24 +13,9 @@ const catalogosRoutes = require('./routes/catalogos_routes.js');
 const clientesRoutes = require('./routes/clientes_routes.js');
 const meRoutes = require('./routes/me_routes.js');
 const porUbicarRoutes = require('./routes/por_ubicar_routes.js');
+const correosRoutes = require('./routes/correos_routes.js');
 
 const app = express();
-
-const origenesPermitidos = [
-    'http://localhost:5173',
-    'https://plataformas-frontend.vercel.app',
-];
-
-function origenPermitido(origin) {
-    if (!origin) return true;
-    if (origenesPermitidos.includes(origin)) return true;
-    try {
-        const { hostname } = new URL(origin);
-        return hostname.endsWith('.vercel.app');
-    } catch {
-        return false;
-    }
-}
 
 app.use(cors({
     origin: function(origin, callback) {
@@ -51,6 +37,7 @@ app.use('/api/catalogos', catalogosRoutes); // Maneja /api/catalogos/plataformas
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/por-ubicar', porUbicarRoutes);
+app.use('/api/correos', correosRoutes);
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
