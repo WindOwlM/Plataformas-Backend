@@ -7,6 +7,12 @@ const {
 
 const porUbicarController = {};
 
+// La columna "notas" de por ubicar se agrega con sql/usuario_por_ubicar_notas.sql.
+// Mientras no exista, se guarda sin notas para no romper nada.
+function faltaColumnaNotas(error) {
+    return !!error && /42703|PGRST204/.test(error.code || '') && /notas/i.test(error.message || '');
+}
+
 async function plataformasPermitidas(idUsuario, idPlataformaActual) {
     const ids = new Set();
     if (idPlataformaActual) ids.add(idPlataformaActual);
@@ -126,6 +132,8 @@ porUbicarController.moverDesdeCuenta = async (req, res) => {
                 vencimiento_usuario,
                 es_combo,
                 valor_venta,
+                notas,
+                estado,
                 cuenta ( id, id_plataforma )
             `)
             .eq('id', puestoId)
@@ -134,6 +142,9 @@ porUbicarController.moverDesdeCuenta = async (req, res) => {
 
         if (puestoError || !puesto) {
             return res.status(404).json({ error: 'Puesto no encontrado' });
+        }
+        if (String(puesto.estado || '').toLowerCase() === 'cortado') {
+            return res.status(400).json({ error: 'Este registro es solo un recordatorio. Bórralo de esta cuenta.' });
         }
 
         let idPlataforma = puesto.cuenta?.id_plataforma;
@@ -149,29 +160,40 @@ porUbicarController.moverDesdeCuenta = async (req, res) => {
             return res.status(400).json({ error: 'La cuenta no tiene plataforma' });
         }
 
-        const { data: pendiente, error: insertError } = await supabase
+        const fila = {
+            id_usuario: puesto.id_usuario,
+            id_cuenta_anterior: puesto.id_cuenta,
+            id_plataforma: idPlataforma,
+            pin: puesto.pin || null,
+            vencimiento_usuario: puesto.vencimiento_usuario || null,
+            es_combo: !!puesto.es_combo,
+            valor_venta: puesto.valor_venta || 0,
+            notas: puesto.notas || null,
+        };
+        let { data: pendiente, error: insertError } = await supabase
             .from('usuario_por_ubicar')
-            .insert([{
-                id_usuario: puesto.id_usuario,
-                id_cuenta_anterior: puesto.id_cuenta,
-                id_plataforma: idPlataforma,
-                pin: puesto.pin || null,
-                vencimiento_usuario: puesto.vencimiento_usuario || null,
-                es_combo: !!puesto.es_combo,
-                valor_venta: puesto.valor_venta || 0,
-            }])
+            .insert([fila])
             .select()
             .single();
+        if (faltaColumnaNotas(insertError)) {
+            const { notas: _sinNotas, ...sinNotas } = fila;
+            ({ data: pendiente, error: insertError } = await supabase
+                .from('usuario_por_ubicar')
+                .insert([sinNotas])
+                .select()
+                .single());
+        }
 
         if (insertError) throw insertError;
 
-        const { error: deleteError } = await supabase
+        // El perfil sigue existiendo en la cuenta: queda el recordatorio para borrarlo
+        const { error: updateError } = await supabase
             .from('usuario_cuenta')
-            .delete()
+            .update({ estado: 'cortado' })
             .eq('id', puestoId)
             .eq('id_cuenta', id);
 
-        if (deleteError) throw deleteError;
+        if (updateError) throw updateError;
 
         await actualizarEstadoCuenta(supabase, id);
 
@@ -298,6 +320,7 @@ porUbicarController.reubicar = async (req, res) => {
                 vencimiento_usuario: vencimiento_usuario || null,
                 es_combo: !!es_combo,
                 valor_venta: parseFloat(valor_venta) || 0,
+                notas: pendiente.notas || null,
                 estado: 'activa',
                 fecha_venta: new Date().toISOString(),
             }])

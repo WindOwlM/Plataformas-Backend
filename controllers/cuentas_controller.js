@@ -3,6 +3,7 @@ const {
     actualizarEstadoCuenta,
     setCuentaInhabilitada,
     asegurarCupo,
+    avisoSobrecupo,
     maxPuestosPlataforma,
     decorarCuenta,
     esCuentaInhabilitada,
@@ -198,6 +199,8 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
         if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
             return res.status(400).json({ error: 'La fecha es obligatoria (YYYY-MM-DD).' });
         }
+        // Cuentas cuyos clientes se renovaron: un vencido que se renueva vuelve a ocupar puesto
+        const cuentasRenovadas = new Set();
 
         if (tipo === 'por_ubicar') {
             if (!id_por_ubicar) return res.status(400).json({ error: 'Falta el registro por ubicar.' });
@@ -253,7 +256,10 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
                     .eq('id_cuenta', fila.id_cuenta)
                     .select('id');
                 if (error) throw error;
-                if (data?.length) actualizadas += 1;
+                if (data?.length) {
+                    actualizadas += 1;
+                    cuentasRenovadas.add(fila.id_cuenta);
+                }
             }
             if (actualizadas === 0) {
                 return res.status(400).json({ error: 'No se pudo actualizar ninguna cuenta.' });
@@ -268,9 +274,11 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
                 .eq('id', id_puesto)
                 .eq('id_cuenta', id_cuenta);
             if (error) throw error;
+            cuentasRenovadas.add(id_cuenta);
         }
 
-        res.status(200).json({ mensaje: 'Fecha actualizada' });
+        const aviso = await avisoSobrecupo(supabase, cuentasRenovadas);
+        res.status(200).json({ mensaje: 'Fecha actualizada', ...(aviso ? { aviso } : {}) });
     } catch (error) {
         console.error('Error actualizando fecha de vencimiento:', error);
         res.status(500).json({ error: error.message });
@@ -299,7 +307,7 @@ cuentasController.renovarAsignaciones = async (req, res) => {
 
         const { data: actuales, error: actualesError } = await supabase
             .from('usuario_cuenta')
-            .select('id, id_cuenta')
+            .select('id, id_cuenta, notas')
             .eq('id_usuario', id_usuario);
         if (actualesError) throw actualesError;
 
@@ -324,11 +332,13 @@ cuentasController.renovarAsignaciones = async (req, res) => {
         const afectadas = new Set();
         const eliminados = new Set();
 
-        async function borrarPuesto(idPuesto, idCuenta) {
+        // El perfil sigue existiendo en la cuenta vieja: no se borra, queda el
+        // recordatorio para borrarlo del perfil (igual que Reubicar).
+        async function dejarRecordatorio(idPuesto, idCuenta) {
             if (!idPuesto || eliminados.has(idPuesto)) return;
             const { error } = await supabase
                 .from('usuario_cuenta')
-                .delete()
+                .update({ estado: 'cortado' })
                 .eq('id', idPuesto)
                 .eq('id_cuenta', idCuenta);
             if (error) throw error;
@@ -372,18 +382,29 @@ cuentasController.renovarAsignaciones = async (req, res) => {
                 afectadas.add(linea.id_cuenta);
             } else {
                 await asegurarCupo(supabase, linea.id_cuenta, 1);
+                // Las notas viajan con el cliente (desde su puesto anterior o desde por ubicar)
+                let notas = actual?.notas || null;
+                if (!actual && linea.id_por_ubicar) {
+                    const { data: pendiente } = await supabase
+                        .from('usuario_por_ubicar')
+                        .select('*')
+                        .eq('id', linea.id_por_ubicar)
+                        .maybeSingle();
+                    notas = pendiente?.notas || null;
+                }
                 const { error } = await supabase
                     .from('usuario_cuenta')
                     .insert([{
                         id_usuario,
                         id_cuenta: linea.id_cuenta,
                         ...payload,
+                        notas,
                         fecha_venta: new Date().toISOString(),
                     }]);
                 if (error) throw error;
                 afectadas.add(linea.id_cuenta);
                 if (actual) {
-                    await borrarPuesto(actual.id, actual.id_cuenta);
+                    await dejarRecordatorio(actual.id, actual.id_cuenta);
                 }
                 if (linea.id_por_ubicar) {
                     const { error: pendienteError } = await supabase
@@ -400,14 +421,11 @@ cuentasController.renovarAsignaciones = async (req, res) => {
             if (idsGuardar.has(idPuesto) || eliminados.has(idPuesto)) continue;
             const actual = porId.get(idPuesto);
             if (!actual) continue;
-            await borrarPuesto(actual.id, actual.id_cuenta);
+            await dejarRecordatorio(actual.id, actual.id_cuenta);
         }
 
-        for (const idCuenta of afectadas) {
-            await actualizarEstadoCuenta(supabase, idCuenta);
-        }
-
-        res.status(200).json({ mensaje: 'Renovación aplicada' });
+        const aviso = await avisoSobrecupo(supabase, afectadas);
+        res.status(200).json({ mensaje: 'Renovación aplicada', ...(aviso ? { aviso } : {}) });
     } catch (error) {
         console.error('Error renovando asignaciones:', error);
         const status = error.status || 500;
@@ -503,8 +521,11 @@ cuentasController.actualizarCuenta = async (req, res) => {
             supabase,
             id_plataforma !== undefined ? id_plataforma : cuentaActual.id_plataforma
         );
+        // Clientes nuevos solo si hay cupo. Si se pasa por renovar a alguien que ya
+        // estaba, se guarda y se avisa (seguramente falta cortar a otro).
         const ocupanCupo = puestosParaProcesar.filter(esPuestoQueOcupa).length;
-        if (ocupanCupo > maxPuestos) {
+        const nuevosQueOcupan = puestosParaProcesar.filter((p) => !p.id && esPuestoQueOcupa(p)).length;
+        if (ocupanCupo > maxPuestos && nuevosQueOcupan > 0) {
             return res.status(400).json({
                 error: `Esta plataforma admite máximo ${maxPuestos} puestos activos.`,
             });
@@ -571,7 +592,7 @@ cuentasController.actualizarCuenta = async (req, res) => {
             if (errorInsertarPuestos) throw errorInsertarPuestos;
         }
 
-        await actualizarEstadoCuenta(supabase, cuenta.id);
+        const aviso = await avisoSobrecupo(supabase, [cuenta.id]);
 
         const { data: cuentaActualizada, error: errorCuentaActualizada } = await supabase
             .from('cuenta')
@@ -584,6 +605,7 @@ cuentasController.actualizarCuenta = async (req, res) => {
         res.status(200).json({
             mensaje: 'Cuenta actualizada',
             cuenta: decorarCuenta(cuentaActualizada),
+            ...(aviso ? { aviso } : {}),
         });
     } catch (error) {
         console.error("Error actualizando cuenta:", error);
@@ -630,12 +652,37 @@ cuentasController.eliminarCuenta = async (req, res) => {
     try {
         const { id } = req.params;
 
+        const { data: puestos, error: puestosError } = await supabase
+            .from('usuario_cuenta')
+            .select('id, estado')
+            .eq('id_cuenta', id);
+        if (puestosError) throw puestosError;
+        if (puestos?.length) {
+            const recordatorios = puestos.filter((p) => String(p.estado || '').toLowerCase() === 'cortado').length;
+            const clientes = puestos.length - recordatorios;
+            const partes = [];
+            if (clientes) partes.push(`${clientes} ${clientes === 1 ? 'cliente' : 'clientes'}`);
+            if (recordatorios) partes.push(`${recordatorios} ${recordatorios === 1 ? 'recordatorio' : 'recordatorios'} para borrar`);
+            return res.status(400).json({
+                error: `No se puede eliminar: la cuenta todavía tiene ${partes.join(' y ')}. `
+                    + 'Reubícalos, pásalos a por ubicar o bórralos de la cuenta primero.',
+            });
+        }
+
         const { error } = await supabase
             .from('cuenta')
             .delete()
             .eq('id', id);
 
-        if (error) throw error;
+        if (error) {
+            // Clientes por ubicar que venían de esta cuenta
+            if (/foreign key|23503/i.test(`${error.code} ${error.message}`)) {
+                return res.status(400).json({
+                    error: 'No se puede eliminar: hay clientes en "Por ubicar" que venían de esta cuenta. Ubícalos o bórralos de Por ubicar primero.',
+                });
+            }
+            throw error;
+        }
 
         res.status(200).json({ mensaje: 'Cuenta eliminada' });
     } catch (error) {
@@ -782,9 +829,8 @@ cuentasController.actualizarPuesto = async (req, res) => {
         if (error) throw error;
         if (!puesto) return res.status(404).json({ error: 'Puesto no encontrado' });
 
-        await actualizarEstadoCuenta(supabase, id);
-
-        res.status(200).json({ mensaje: 'Puesto actualizado', puesto });
+        const aviso = await avisoSobrecupo(supabase, [id]);
+        res.status(200).json({ mensaje: 'Puesto actualizado', puesto, ...(aviso ? { aviso } : {}) });
     } catch (error) {
         console.error('Error actualizando puesto:', error);
         res.status(error.status || 500).json({ error: error.message });
