@@ -15,15 +15,26 @@ function numero(value) {
     return Number.isFinite(n) ? n : 0;
 }
 
+// Saldo a favor total de los clientes (lo que les debes en servicio)
+function saldosAFavor(filas) {
+    const porCliente = new Map();
+    for (const f of filas || []) {
+        porCliente.set(f.id_usuario, (porCliente.get(f.id_usuario) || 0) + numero(f.monto));
+    }
+    const positivos = [...porCliente.values()].filter((v) => v > 0);
+    return { saldo_favor: positivos.reduce((s, v) => s + v, 0), clientes_saldo: positivos.length };
+}
+
 async function resumenPagos(mes) {
     const [y, m] = mes.split('-').map(Number);
     const hasta = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
-    const [mesRes, pendRes] = await Promise.all([
+    const [mesRes, pendRes, saldoRes] = await Promise.all([
         supabase.from('pago').select('tipo, monto, medio, estado')
             .eq('estado', 'pagado').gte('fecha_pagado', `${mes}-01`).lt('fecha_pagado', hasta),
         supabase.from('pago').select('tipo, monto').eq('estado', 'pendiente'),
+        supabase.from('pago').select('id_usuario, monto').eq('tipo', 'saldo'),
     ]);
-    for (const r of [mesRes, pendRes]) {
+    for (const r of [mesRes, pendRes, saldoRes]) {
         if (r.error) {
             if (tablaNoExiste(r.error)) return null;
             throw r.error;
@@ -52,6 +63,7 @@ async function resumenPagos(mes) {
         fiados: contar(pendRes.data, 'cobro'),
         deuda_proveedores: total(pendRes.data, 'gasto'),
         deudas: contar(pendRes.data, 'gasto'),
+        ...saldosAFavor(saldoRes.data),
     };
 }
 

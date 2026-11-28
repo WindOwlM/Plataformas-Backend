@@ -1,6 +1,6 @@
 const supabase = require('../config/supabase');
 const { todayKey } = require('../lib/vencimientos');
-const { MEDIOS, tablaNoExiste } = require('../lib/pagos');
+const { MEDIOS, tablaNoExiste, falteTipoSaldo } = require('../lib/pagos');
 
 const SELECT = 'id, tipo, estado, monto, medio, fecha, fecha_pagado, id_usuario, proveedor, detalle, notas, created_at, usuario(nombre, numero_telefono)';
 
@@ -70,18 +70,99 @@ pagosController.pendientes = async (req, res) => {
     }
 };
 
-// Historial de un cliente
+// Historial de un cliente con sus totales
 pagosController.deCliente = async (req, res) => {
     try {
         const { data, error } = await supabase.from('pago').select(SELECT)
-            .eq('id_usuario', req.params.idUsuario).order('fecha', { ascending: false }).limit(100);
+            .eq('id_usuario', req.params.idUsuario)
+            .order('fecha', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(300);
         if (error) {
             if (tablaNoExiste(error)) return sinTabla(res);
             throw error;
         }
-        res.status(200).json({ tabla: true, movimientos: data.map(plano) });
+        const movimientos = data.map(plano);
+        const suma = (filtro) => movimientos.filter(filtro).reduce((s, p) => s + p.monto, 0);
+        res.status(200).json({
+            tabla: true,
+            medios: MEDIOS,
+            resumen: {
+                pagado: suma((p) => p.tipo === 'cobro' && p.estado === 'pagado'),
+                debe: suma((p) => p.tipo === 'cobro' && p.estado === 'pendiente'),
+                saldo: Math.max(0, suma((p) => p.tipo === 'saldo')),
+            },
+            movimientos,
+        });
     } catch (error) {
         console.error('Error listando pagos del cliente:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Debe y saldo a favor de todos los clientes (para las etiquetas)
+pagosController.estadoClientes = async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('pago').select('id_usuario, tipo, estado, monto, fecha')
+            .not('id_usuario', 'is', null)
+            .or('and(tipo.eq.cobro,estado.eq.pendiente),tipo.eq.saldo');
+        if (error) {
+            if (tablaNoExiste(error)) return res.status(200).json({ tabla: false, clientes: {} });
+            throw error;
+        }
+        const clientes = {};
+        for (const p of data) {
+            const c = clientes[p.id_usuario] || (clientes[p.id_usuario] = { debe: 0, fiados: 0, desde: null, saldo: 0 });
+            if (p.tipo === 'saldo') {
+                c.saldo += Number(p.monto) || 0;
+            } else {
+                c.debe += Number(p.monto) || 0;
+                c.fiados += 1;
+                if (!c.desde || p.fecha < c.desde) c.desde = p.fecha;
+            }
+        }
+        for (const [id, c] of Object.entries(clientes)) {
+            c.saldo = Math.max(0, c.saldo);
+            if (!c.debe && !c.saldo) delete clientes[id];
+        }
+        res.status(200).json({ tabla: true, clientes });
+    } catch (error) {
+        console.error('Error calculando estado de clientes:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Agregar saldo a favor (compensación) a un cliente
+pagosController.agregarSaldo = async (req, res) => {
+    try {
+        const { id_usuario, monto, notas } = req.body || {};
+        const valor = Number(monto);
+        if (!id_usuario) return res.status(400).json({ error: 'Falta el cliente.' });
+        if (!Number.isFinite(valor) || valor <= 0) {
+            return res.status(400).json({ error: 'El saldo a favor debe ser mayor que 0.' });
+        }
+        const hoy = todayKey();
+        const { error } = await supabase.from('pago').insert([{
+            tipo: 'saldo',
+            estado: 'pagado',
+            monto: valor,
+            fecha: hoy,
+            fecha_pagado: hoy,
+            id_usuario,
+            detalle: [],
+            notas: notas ? String(notas).slice(0, 500) : 'Saldo a favor',
+        }]);
+        if (error) {
+            if (falteTipoSaldo(error)) {
+                return res.status(400).json({
+                    error: 'Para usar saldo a favor falta un paso en Supabase: ejecuta el archivo sql/pago_saldo.sql (una vez).',
+                });
+            }
+            throw error;
+        }
+        res.status(200).json({ mensaje: 'Saldo a favor agregado' });
+    } catch (error) {
+        console.error('Error agregando saldo a favor:', error);
         res.status(500).json({ error: error.message });
     }
 };
