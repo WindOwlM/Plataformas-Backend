@@ -1,4 +1,5 @@
 const supabase = require('../config/supabase');
+const { registrarPagoRenovacion, unirAvisos } = require('../lib/pagos');
 const {
     actualizarEstadoCuenta,
     setCuentaInhabilitada,
@@ -195,7 +196,7 @@ cuentasController.obtenerCuentas = async (req, res) => {
 
 cuentasController.actualizarFechaVencimiento = async (req, res) => {
     try {
-        const { fecha, tipo, id_cuenta, id_puesto, id_por_ubicar, renovaciones = [] } = req.body;
+        const { fecha, tipo, id_cuenta, id_puesto, id_por_ubicar, renovaciones = [], pago, id_usuario, proveedor } = req.body;
         if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
             return res.status(400).json({ error: 'La fecha es obligatoria (YYYY-MM-DD).' });
         }
@@ -277,7 +278,13 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
             cuentasRenovadas.add(id_cuenta);
         }
 
-        const aviso = await avisoSobrecupo(supabase, cuentasRenovadas);
+        const esCuenta = tipo === 'cuenta' || tipo === 'cuentas';
+        const avisoPago = await registrarPagoRenovacion(supabase, pago, {
+            tipo: esCuenta ? 'gasto' : 'cobro',
+            idUsuario: id_usuario || null,
+            proveedor: proveedor || null,
+        });
+        const aviso = unirAvisos(await avisoSobrecupo(supabase, cuentasRenovadas), avisoPago);
         res.status(200).json({ mensaje: 'Fecha actualizada', ...(aviso ? { aviso } : {}) });
     } catch (error) {
         console.error('Error actualizando fecha de vencimiento:', error);
@@ -287,7 +294,7 @@ cuentasController.actualizarFechaVencimiento = async (req, res) => {
 
 cuentasController.renovarAsignaciones = async (req, res) => {
     try {
-        const { id_usuario, puestos_origen = [], lineas = [] } = req.body;
+        const { id_usuario, puestos_origen = [], lineas = [], pago } = req.body;
 
         if (!id_usuario) {
             return res.status(400).json({ error: 'Falta el cliente.' });
@@ -424,7 +431,8 @@ cuentasController.renovarAsignaciones = async (req, res) => {
             await dejarRecordatorio(actual.id, actual.id_cuenta);
         }
 
-        const aviso = await avisoSobrecupo(supabase, afectadas);
+        const avisoPago = await registrarPagoRenovacion(supabase, pago, { tipo: 'cobro', idUsuario: id_usuario });
+        const aviso = unirAvisos(await avisoSobrecupo(supabase, afectadas), avisoPago);
         res.status(200).json({ mensaje: 'Renovación aplicada', ...(aviso ? { aviso } : {}) });
     } catch (error) {
         console.error('Error renovando asignaciones:', error);

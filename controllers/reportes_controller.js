@@ -1,5 +1,6 @@
 const supabase = require('../config/supabase');
 const { todayKey } = require('../lib/vencimientos');
+const { tablaNoExiste } = require('../lib/pagos');
 
 // Reporte de solo lectura: cuánto debería entrar y salir según los datos actuales.
 // No hay historial de pagos todavía, así que todo es una estimación.
@@ -12,6 +13,46 @@ function dateKey(value) {
 function numero(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : 0;
+}
+
+async function resumenPagos(mes) {
+    const [y, m] = mes.split('-').map(Number);
+    const hasta = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+    const [mesRes, pendRes] = await Promise.all([
+        supabase.from('pago').select('tipo, monto, medio, estado')
+            .eq('estado', 'pagado').gte('fecha_pagado', `${mes}-01`).lt('fecha_pagado', hasta),
+        supabase.from('pago').select('tipo, monto').eq('estado', 'pendiente'),
+    ]);
+    for (const r of [mesRes, pendRes]) {
+        if (r.error) {
+            if (tablaNoExiste(r.error)) return null;
+            throw r.error;
+        }
+    }
+    const total = (filas, tipo) => filas.filter((f) => f.tipo === tipo).reduce((s, f) => s + numero(f.monto), 0);
+    const contar = (filas, tipo) => filas.filter((f) => f.tipo === tipo).length;
+    const porMedio = {};
+    for (const f of mesRes.data) {
+        if (f.tipo !== 'cobro') continue;
+        const medio = f.medio || 'Sin especificar';
+        porMedio[medio] = (porMedio[medio] || 0) + numero(f.monto);
+    }
+    const cobrado = total(mesRes.data, 'cobro');
+    const pagado = total(mesRes.data, 'gasto');
+    return {
+        cobrado,
+        cobros: contar(mesRes.data, 'cobro'),
+        pagado,
+        gastos: contar(mesRes.data, 'gasto'),
+        ganancia: cobrado - pagado,
+        por_medio: Object.entries(porMedio)
+            .map(([medio, valor]) => ({ medio, valor }))
+            .sort((a, b) => b.valor - a.valor),
+        fiado: total(pendRes.data, 'cobro'),
+        fiados: contar(pendRes.data, 'cobro'),
+        deuda_proveedores: total(pendRes.data, 'gasto'),
+        deudas: contar(pendRes.data, 'gasto'),
+    };
 }
 
 const reportesController = {};
@@ -141,9 +182,13 @@ reportesController.resumen = async (req, res) => {
             if (c.fecha < v.fecha) v.fecha = c.fecha;
         }
 
+        // Lo que realmente se registró con "Renovar" (tabla pago)
+        const real = await resumenPagos(mes);
+
         res.status(200).json({
             hoy,
             mes,
+            real,
             general: {
                 clientes: new Set(alDia.map((c) => c.id_usuario)).size,
                 perfiles: alDia.length,

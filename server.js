@@ -15,6 +15,7 @@ const meRoutes = require('./routes/me_routes.js');
 const porUbicarRoutes = require('./routes/por_ubicar_routes.js');
 const correosRoutes = require('./routes/correos_routes.js');
 const reportesRoutes = require('./routes/reportes_routes.js');
+const pagosRoutes = require('./routes/pagos_routes.js');
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use('/api/me', meRoutes);
 app.use('/api/por-ubicar', porUbicarRoutes);
 app.use('/api/correos', correosRoutes);
 app.use('/api/reportes', reportesRoutes);
+app.use('/api/pagos', pagosRoutes);
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
